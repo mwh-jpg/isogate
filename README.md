@@ -48,6 +48,7 @@ go run ./cmd/server
 
 - 健康检查：`http://localhost:8080/healthz`
 - 控制台：`http://localhost:8080/console/`
+- 独立登录页：`http://localhost:8080/console/login.html`（未登录访问控制台会自动跳转到此）
 - Swagger 风格接口见下方 API 列表（无自动生成文档，按此 README 调用）
 
 ### 4. 全栈部署（含 Nginx）
@@ -55,6 +56,13 @@ go run ./cmd/server
 ```bash
 docker compose -f deploy/docker-compose.full.yml --env-file deploy/.env up -d
 ```
+
+## 控制台与登录
+
+- 控制台为免构建静态页面（`frontend/index.html` + `app.js`），登录后 JWT 存于 `localStorage.gw_token`。
+- 未登录访问 `/console/` 会自动跳转到 `/console/login.html?next=...`，登录/注册成功后跳回原页面；`next` 做了白名单校验，禁止 `//` 开头的外链跳转。
+- 独立登录页 `login.html`（暗色极光 + 玻璃拟态）支持登录/注册切换、已登录 token 自动校验、错误内联提示；管理员账号登录后自动显示「管理后台」入口。
+- 退出登录会清空本地 token 与内存状态并跳回登录页。
 
 ## 核心 API
 

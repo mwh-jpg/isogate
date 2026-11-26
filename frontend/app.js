@@ -188,50 +188,9 @@ function closeModal() {
 // ---------------------------------------------------------------------------
 // Auth & data
 // ---------------------------------------------------------------------------
-function openAuthModal(mode = 'login') {
-  openModal({
-    title: '登录 IsoGate 控制台',
-    bodyHtml: `
-      <div class="space-y-3.5 text-xs">
-        <p class="text-slate-400 leading-relaxed">管理 API Key、上游账号与审计日志。静态 IP 由系统在付款后自动分配，无需在此配置。</p>
-        <div>
-          <label class="block font-medium text-slate-300 mb-1.5">邮箱</label>
-          <input id="auth-email" type="email" autocomplete="email" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white placeholder-slate-500 focus:outline-none focus:border-indigo-400" />
-        </div>
-        <div>
-          <label class="block font-medium text-slate-300 mb-1.5">密码（至少 8 位）</label>
-          <input id="auth-pass" type="password" autocomplete="${mode === 'register' ? 'new-password' : 'current-password'}" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white placeholder-slate-500 focus:outline-none focus:border-indigo-400" />
-        </div>
-      </div>
-    `,
-    footerHtml: `
-      <button id="auth-register" class="px-3.5 py-2 rounded-xl text-xs font-medium text-slate-300 hover:bg-white/[0.06]">注册</button>
-      <button id="auth-login" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white hover:bg-indigo-400">登录</button>
-    `,
-  });
-  $('auth-login').addEventListener('click', () => submitAuth('login'));
-  $('auth-register').addEventListener('click', () => submitAuth('register'));
-  (mode === 'register' ? $('auth-email') : $('auth-pass')).focus();
-}
-
-async function submitAuth(mode) {
-  const email = $('auth-email').value.trim();
-  const password = $('auth-pass').value;
-  if (!email || password.length < 8) {
-    showToast('请填写邮箱和至少 8 位密码', 'warning');
-    return;
-  }
-  try {
-    const res = await api('/auth/' + mode, { method: 'POST', body: JSON.stringify({ email, password }) });
-    token = res.token;
-    localStorage.setItem('gw_token', token);
-    closeModal();
-    await loadData();
-    render();
-    showToast(mode === 'login' ? '登录成功' : '注册成功，付款后系统将自动分配静态 IP', 'success');
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
+function goLogin() {
+  const next = encodeURIComponent(location.pathname + location.search);
+  location.replace('login.html?next=' + next);
 }
 
 function logout() {
@@ -243,12 +202,11 @@ function logout() {
   state.keys = [];
   state.logs = [];
   state.admin = { overview: null, users: [], proxies: [], logs: [] };
-  render();
-  openAuthModal();
+  location.replace('login.html');
 }
 
 async function loadData() {
-  if (!token) { openAuthModal(); return; }
+  if (!token) { goLogin(); return; }
   try {
     const [me, proxies, accounts, keys, logs, stats] = await Promise.all([
       api('/auth/me'),
@@ -288,7 +246,7 @@ async function loadData() {
     if (e.status === 401) {
       token = '';
       localStorage.removeItem('gw_token');
-      openAuthModal();
+      goLogin();
     } else {
       showToast('加载数据失败：' + e.message, 'error');
     }
@@ -914,6 +872,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   render();
   if (token) loadAndRender();
-  else openAuthModal();
+  else goLogin();
   icons(document);
 });
