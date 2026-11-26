@@ -34,18 +34,32 @@ func (a *AuditChain) Append(ctx context.Context, userID *string, logID int64, ev
 		return err
 	}
 	return a.repo.WithTx(ctx, func(tx pgx.Tx) error {
-		var lastSeq int64
-		var prevHash string
-		err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(seq),0), COALESCE((SELECT hash FROM audit_chain ORDER BY seq DESC LIMIT 1), $1) FROM audit_chain`, genesisHash).Scan(&lastSeq, &prevHash)
-		if err != nil && err != pgx.ErrNoRows {
+		// 串行化追加：并发事务若同时读到同一个 head，会写出分叉链。
+		if _, err := tx.Exec(ctx, `LOCK TABLE audit_chain IN EXCLUSIVE MODE`); err != nil {
 			return err
 		}
-		seq := lastSeq + 1
-		hash := chainHash(seq, eventType, data, prevHash)
-		_, err = tx.Exec(ctx, `
-			INSERT INTO audit_chain (seq,user_id,log_id,event_type,payload,prev_hash,hash)
-			VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7)`,
-			seq, userID, nullableInt64(logID), eventType, string(data), prevHash, hash)
+		var prevHash string
+		if err := tx.QueryRow(ctx,
+			`SELECT COALESCE((SELECT hash FROM audit_chain ORDER BY seq DESC LIMIT 1), $1)`,
+			genesisHash).Scan(&prevHash); err != nil {
+			return err
+		}
+		// payload 是 jsonb，落库时会被规范化（键重排/去空格）。必须用
+		// RETURNING payload::text 拿到实际存储文本作为哈希材料，否则 Verify
+		// 用 ::text 重算时会与 json.Marshal 的字节不一致，导致首条即断链。
+		// seq 交给 BIGSERIAL 自动分配，避免并发下显式 seq 主键冲突。
+		var seq int64
+		var storedPayload string
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO audit_chain (user_id,log_id,event_type,payload,prev_hash,hash)
+			VALUES ($1,$2,$3,$4::jsonb,$5,'')
+			RETURNING seq, payload::text`,
+			userID, nullableInt64(logID), eventType, string(data), prevHash,
+		).Scan(&seq, &storedPayload); err != nil {
+			return err
+		}
+		hash := chainHash(seq, eventType, []byte(storedPayload), prevHash)
+		_, err := tx.Exec(ctx, `UPDATE audit_chain SET hash=$1 WHERE seq=$2`, hash, seq)
 		return err
 	})
 }

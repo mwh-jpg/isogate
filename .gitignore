@@ -7,6 +7,7 @@
 
 # 编译产物 / 压缩包
 gateway-linux-amd64
+gateway.bin
 *.gz
 
 # Python / 编辑器

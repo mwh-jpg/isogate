@@ -196,12 +196,22 @@ func (r *Repo) GetProxy(ctx context.Context, userID, proxyID string) (*model.Pro
 }
 
 func (r *Repo) UpdateProxyHealth(ctx context.Context, userID, proxyID, ip, country string, latency int, health, errMsg string) error {
-	_, err := r.pool.Exec(ctx, `
+	// 参数顺序必须与占位符一致：SQL 为 id=$1 AND user_id=$2。
+	// 旧实现误传 (userID, proxyID)，两者同为 UUID 故类型不报错，但更新 0 行，
+	// 导致探测显示 healthy 而 DB 仍为 unknown，Resolver 触发 Fail-Closed 假阳性。
+	tag, err := r.pool.Exec(ctx, `
 		UPDATE proxy_endpoints
 		SET last_egress_ip=$3, last_egress_country=$4, last_latency_ms=$5,
 		    health_status=$6, last_checked_at=now(), last_error=$7, updated_at=now()
-		WHERE id=$1 AND user_id=$2`, userID, proxyID, ip, country, latency, health, nullable(errMsg))
-	return err
+		WHERE id=$1 AND user_id=$2`, proxyID, userID, ip, country, latency, health, nullable(errMsg))
+	if err != nil {
+		return err
+	}
+	// 0 行更新同样视为失败，避免健康状态被静默丢弃
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *Repo) DeleteProxy(ctx context.Context, userID, proxyID string) error {

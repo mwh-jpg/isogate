@@ -1,5 +1,6 @@
 -- Phase 1: 5 张核心表 + 索引
 -- 设计原则：所有查询强制带 user_id；凭证/代理密码只存密文（BYTEA/text 密文串）。
+-- 幂等要求：服务每次启动都会重跑全部迁移，因此所有语句必须可重复执行。
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -56,9 +57,15 @@ CREATE INDEX IF NOT EXISTS idx_account_proxy ON upstream_accounts(proxy_id);
 -- 防越权：proxy_id 必须属于同一 user（在应用层强校验，DB 层用复合外键兜底）
 -- 注意：唯一索引必须先于外键创建，且列顺序必须与被引用列一致
 CREATE UNIQUE INDEX IF NOT EXISTS uq_proxy_owner ON proxy_endpoints(user_id, id);
-ALTER TABLE upstream_accounts
-    ADD CONSTRAINT fk_account_proxy_same_user
-    FOREIGN KEY (user_id, proxy_id) REFERENCES proxy_endpoints(user_id, id) ON DELETE SET NULL;
+-- ADD CONSTRAINT 没有 IF NOT EXISTS，重跑会报 SQLSTATE 42710，故用 DO 块判存在
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_account_proxy_same_user') THEN
+        ALTER TABLE upstream_accounts
+            ADD CONSTRAINT fk_account_proxy_same_user
+            FOREIGN KEY (user_id, proxy_id) REFERENCES proxy_endpoints(user_id, id) ON DELETE SET NULL;
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS gateway_api_keys (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -77,9 +84,14 @@ CREATE INDEX IF NOT EXISTS idx_key_user ON gateway_api_keys(user_id);
 
 -- 防越权：API Key 绑定的账号必须属于同一 user（唯一索引先于外键）
 CREATE UNIQUE INDEX IF NOT EXISTS uq_account_owner ON upstream_accounts(user_id, id);
-ALTER TABLE gateway_api_keys
-    ADD CONSTRAINT fk_key_account_same_user
-    FOREIGN KEY (user_id, upstream_account_id) REFERENCES upstream_accounts(user_id, id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_key_account_same_user') THEN
+        ALTER TABLE gateway_api_keys
+            ADD CONSTRAINT fk_key_account_same_user
+            FOREIGN KEY (user_id, upstream_account_id) REFERENCES upstream_accounts(user_id, id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS usage_logs (
     id                     BIGSERIAL PRIMARY KEY,
