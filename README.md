@@ -76,6 +76,11 @@ docker compose -f deploy/docker-compose.full.yml --env-file deploy/.env up -d
 管理员面（JWT role=admin）：
 - `GET /api/v1/admin/overview` `GET /api/v1/admin/users` `GET /api/v1/admin/proxies` `GET /api/v1/admin/logs`
 - `POST /api/v1/admin/users/:id/provision-ip` — 为指定用户创建/替换自动分配的静态 IP 并探测（当前为手动占位入口）
+- `PATCH /api/v1/admin/users/:id/plan` — 管理套餐：`plan_status`（unpaid/active/expired/cancelled）、`plan_days`（续期天数）、`max_concurrency`、`status`（active/disabled）；套餐非 `active` 时网关立即 Fail-Closed
+- `DELETE /api/v1/admin/users/:id/ip` — 回收专属静态 IP，并把套餐同步置为 `expired`
+- `POST /api/v1/admin/proxies/:id/probe` — 重新探测某条静态 IP 的健康状态与出口 IP
+
+管理后台 UI（`role=admin` 可见）：用户与套餐表格支持「套餐」「分配/更换 IP」「回收」；静态 IP 池支持「重新探测」「回收」。
 
 网关面（`sk-iso-...` API Key）：
 - `POST /v1/messages` · `POST /v1/messages/count_tokens` · `POST /v1/chat/completions` · `GET /v1/models`
@@ -93,7 +98,7 @@ docker compose -f deploy/docker-compose.full.yml --env-file deploy/.env up -d
 
 ## 安全设计要点
 
-1. **Fail-Closed**：所有上游账号强制 `require_proxy=true`；系统分配的静态 IP 缺失/不健康/被删时一律 403/502，绝不降级到宿主机 IP。
+1. **Fail-Closed**：所有上游账号强制 `require_proxy=true`；系统分配的静态 IP 缺失/不健康/被删时一律 403/502，绝不降级到宿主机 IP；套餐状态非 `active` 或账号被 `disabled` 时，Resolver 在解析阶段即拒绝出站。回收 IP 后外键把账号 `proxy_id` 置空，重新分配时 `UpsertAutoProxy` 会自动重绑该用户的账号，无需重建。
 2. **零 IDOR**：所有资源查询 SQL 强制带 `user_id`，DB 层用复合外键兜底（`proxy` 与 `account` 必须同属一用户）。
 3. **SSRF**：Dial 阶段两轮校验（解析后 + 实际连接后），阻断私网/回环/链路本地/云元数据 `169.254.169.254`，防 DNS Rebinding。
 4. **凭证加密**：API Key / 代理密码 AES-256-GCM 密文落库；密码 argon2id；日志不记录任何凭证或提示词正文。

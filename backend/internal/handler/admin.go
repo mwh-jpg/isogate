@@ -189,3 +189,94 @@ func (h *AdminHandler) ProvisionIP(c *gin.Context) {
 	fresh, _ := h.repo.GetAutoProxy(c.Request.Context(), userID)
 	c.JSON(http.StatusOK, gin.H{"proxy": fresh, "probe": probe})
 }
+
+type planReq struct {
+	PlanStatus     *string `json:"plan_status"`
+	PlanDays       *int    `json:"plan_days"`
+	MaxConcurrency *int    `json:"max_concurrency"`
+	Status         *string `json:"status"`
+}
+
+// UpdatePlan 管理员修改套餐状态、续期天数、并发上限与账号状态。
+// 套餐状态参与网关出站鉴权：非 active 立即 Fail-Closed。
+func (h *AdminHandler) UpdatePlan(c *gin.Context) {
+	userID := c.Param("id")
+	if _, err := h.repo.GetUserByID(c.Request.Context(), userID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	var req planReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.PlanStatus != nil {
+		switch *req.PlanStatus {
+		case "unpaid", "active", "expired", "cancelled":
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "plan_status 非法"})
+			return
+		}
+	}
+	if req.Status != nil {
+		switch *req.Status {
+		case "active", "disabled":
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "status 非法"})
+			return
+		}
+	}
+	if req.MaxConcurrency != nil && *req.MaxConcurrency < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "max_concurrency 必须大于 0"})
+		return
+	}
+	var expires *time.Time
+	if req.PlanDays != nil && *req.PlanDays > 0 {
+		t := time.Now().Add(time.Duration(*req.PlanDays) * 24 * time.Hour)
+		expires = &t
+	}
+	if err := h.repo.UpdateUserAdmin(c.Request.Context(), userID, req.PlanStatus, expires, req.MaxConcurrency, req.Status); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	u, _ := h.repo.GetUserByID(c.Request.Context(), userID)
+	c.JSON(http.StatusOK, gin.H{
+		"id": u.ID, "email": u.Email, "role": u.Role, "status": u.Status,
+		"plan_status": u.PlanStatus, "plan_expires_at": u.PlanExpiresAt,
+		"max_concurrency": u.MaxConcurrency,
+	})
+}
+
+// RevokeIP 回收用户的专属静态 IP，并同步把套餐置为 expired。
+// 删除后上游账号 proxy_id 由外键 ON DELETE SET NULL 置空，网关立即 Fail-Closed。
+func (h *AdminHandler) RevokeIP(c *gin.Context) {
+	userID := c.Param("id")
+	if _, err := h.repo.GetUserByID(c.Request.Context(), userID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	n, err := h.repo.DeleteAutoProxy(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	expired := "expired"
+	if err := h.repo.UpdateUserAdmin(c.Request.Context(), userID, &expired, nil, nil, nil); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"revoked": n, "plan_status": "expired"})
+}
+
+// ReprobeIP 重新探测某条静态 IP 的健康状态（管理端可跨用户操作）。
+func (h *AdminHandler) ReprobeIP(c *gin.Context) {
+	proxyID := c.Param("id")
+	p, err := h.repo.GetProxyByID(c.Request.Context(), proxyID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "proxy not found"})
+		return
+	}
+	probe := h.res.doProbe(c.Request.Context(), p.UserID, p.ID)
+	fresh, _ := h.repo.GetProxyByID(c.Request.Context(), p.ID)
+	c.JSON(http.StatusOK, gin.H{"proxy": fresh, "probe": probe})
+}

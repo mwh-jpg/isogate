@@ -86,6 +86,41 @@ func (r *Repo) SetUserPlan(ctx context.Context, userID, status string, expiresAt
 	return err
 }
 
+// UpdateUserAdmin 管理员修改套餐与账号属性；只更新传入的非 nil 字段。
+func (r *Repo) UpdateUserAdmin(ctx context.Context, userID string, planStatus *string, expiresAt *time.Time, maxConcurrency *int, status *string) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE users SET
+			plan_status     = COALESCE($2, plan_status),
+			plan_expires_at = COALESCE($3, plan_expires_at),
+			max_concurrency = COALESCE($4, max_concurrency),
+			status          = COALESCE($5, status),
+			updated_at      = now()
+		WHERE id=$1`,
+		userID, planStatus, expiresAt, maxConcurrency, status)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteAutoProxy 回收用户的自动分配静态 IP。
+// 上游账号的 proxy_id 由外键 ON DELETE SET NULL 置空，随后 Fail-Closed 生效。
+func (r *Repo) DeleteAutoProxy(ctx context.Context, userID string) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM proxy_endpoints WHERE user_id=$1 AND source='auto'`, userID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// GetProxyByID 仅供管理端按 ID 查询（不带 user_id 过滤）。
+func (r *Repo) GetProxyByID(ctx context.Context, proxyID string) (*model.ProxyEndpoint, error) {
+	return scanProxy(r.pool.QueryRow(ctx, `SELECT `+proxyCols+` FROM proxy_endpoints WHERE id=$1`, proxyID))
+}
+
 func (r *Repo) ListUsers(ctx context.Context) ([]*model.User, error) {
 	rows, err := r.pool.Query(ctx, `SELECT `+userCols+` FROM users ORDER BY created_at DESC`)
 	if err != nil {
@@ -142,6 +177,14 @@ func (r *Repo) UpsertAutoProxy(ctx context.Context, userID, name, scheme, host s
 			userID, name, scheme, host, port, userEnc, passEnc)
 		p, err := scanProxy(row)
 		if err != nil {
+			return err
+		}
+		// 分配/替换 IP 后把该用户所有强制代理的账号重新指向新 IP。
+		// 回收 IP 时外键会把 proxy_id 置 NULL，若不重绑，重新分配后账号仍会 Fail-Closed。
+		if _, err := tx.Exec(ctx, `
+			UPDATE upstream_accounts SET proxy_id=$2, updated_at=now()
+			WHERE user_id=$1 AND require_proxy=true AND (proxy_id IS NULL OR proxy_id <> $2)`,
+			userID, p.ID); err != nil {
 			return err
 		}
 		out = p

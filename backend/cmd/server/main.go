@@ -131,6 +131,9 @@ func main() {
 		admin.GET("/proxies", adminH.Proxies)
 		admin.GET("/logs", adminH.Logs)
 		admin.POST("/users/:id/provision-ip", adminH.ProvisionIP)
+		admin.PATCH("/users/:id/plan", adminH.UpdatePlan)
+		admin.DELETE("/users/:id/ip", adminH.RevokeIP)
+		admin.POST("/proxies/:id/probe", adminH.ReprobeIP)
 	}
 
 	// Phase 3-4: 隔离透传网关 + 限流熔断 + OpenAI 兼容

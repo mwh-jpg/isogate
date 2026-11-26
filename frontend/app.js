@@ -782,23 +782,28 @@ function renderAdmin(container) {
     </section>
 
     <section class="spotlight-card rounded-2xl overflow-hidden">
-      <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between"><div><h2 class="text-sm font-semibold text-white">用户与套餐</h2><p class="text-xs text-slate-400 mt-0.5">付款确认后由系统自动分配专属静态 IP</p></div><button id="admin-refresh-btn" class="text-xs px-3 py-1.5 rounded-lg bg-white/[0.05] text-slate-200">刷新</button></div>
-      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-5 py-3">邮箱</th><th class="px-5 py-3">角色</th><th class="px-5 py-3">套餐</th><th class="px-5 py-3">静态 IP</th><th class="px-5 py-3">到期</th><th class="px-5 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
+      <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between"><div><h2 class="text-sm font-semibold text-white">用户与套餐</h2><p class="text-xs text-slate-400 mt-0.5">套餐状态参与出站鉴权；静态 IP 可按用户分配、更换或回收</p></div><button id="admin-refresh-btn" class="text-xs px-3 py-1.5 rounded-lg bg-white/[0.05] text-slate-200">刷新</button></div>
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-5 py-3">邮箱</th><th class="px-5 py-3">角色</th><th class="px-5 py-3">套餐</th><th class="px-5 py-3">静态 IP</th><th class="px-5 py-3">到期</th><th class="px-5 py-3">并发</th><th class="px-5 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
         ${state.admin.users.map((u) => `<tr>
           <td class="px-5 py-3.5 font-medium text-slate-100">${esc(u.email)}</td>
           <td class="px-5 py-3.5 mono text-slate-400">${esc(u.role)}</td>
           <td class="px-5 py-3.5"><span class="px-2 py-0.5 rounded-full ${u.plan_status === 'active' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-slate-400'}">${esc(u.plan_status || 'unpaid')}</span></td>
           <td class="px-5 py-3.5 mono text-cyan-300">${esc(u.assigned_ip || '-')}</td>
           <td class="px-5 py-3.5 mono text-slate-400">${esc(fmtTime(u.plan_expires_at))}</td>
-          <td class="px-5 py-3.5 text-right"><button data-assign-ip="${esc(u.id)}" data-email="${esc(u.email)}" class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25">分配静态 IP</button></td>
-        </tr>`).join('') || '<tr><td colspan="6" class="px-5 py-10 text-center text-slate-500">暂无用户</td></tr>'}
+          <td class="px-5 py-3.5 mono text-slate-400">${esc(u.max_concurrency || 5)}</td>
+          <td class="px-5 py-3.5 text-right whitespace-nowrap">
+            <button data-plan="${esc(u.id)}" data-email="${esc(u.email)}" data-plan-status="${esc(u.plan_status || 'unpaid')}" data-plan-expires="${esc(u.plan_expires_at || '')}" data-max-concurrency="${esc(u.max_concurrency || 5)}" data-user-status="${esc(u.status || 'active')}" class="px-2.5 py-1 rounded-lg bg-white/[0.05] text-slate-200 hover:bg-white/[0.1] mr-1">套餐</button>
+            <button data-assign-ip="${esc(u.id)}" data-email="${esc(u.email)}" class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 mr-1">${u.assigned_ip ? '更换 IP' : '分配 IP'}</button>
+            <button data-revoke-ip="${esc(u.id)}" data-email="${esc(u.email)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20" ${u.assigned_ip ? '' : 'disabled'}>回收</button>
+          </td>
+        </tr>`).join('') || '<tr><td colspan="7" class="px-5 py-10 text-center text-slate-500">暂无用户</td></tr>'}
       </tbody></table></div>
     </section>
 
     <section class="spotlight-card rounded-2xl overflow-hidden">
-      <div class="px-5 py-4 border-b border-white/[0.06]"><h2 class="text-sm font-semibold text-white">静态 IP 池</h2><p class="text-xs text-slate-400 mt-0.5">每个用户最多一条系统分配的静态出口</p></div>
-      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-5 py-3">用户</th><th class="px-5 py-3">名称</th><th class="px-5 py-3">出口 IP</th><th class="px-5 py-3">地区</th><th class="px-5 py-3">延迟</th><th class="px-5 py-3">健康</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
-        ${state.admin.proxies.map((p) => `<tr><td class="px-5 py-3.5 mono text-slate-400">${esc(p.user_id || '-')}</td><td class="px-5 py-3.5 text-slate-100">${esc(p.name || '-')}</td><td class="px-5 py-3.5 mono text-cyan-300">${esc(p.last_egress_ip || '-')}</td><td class="px-5 py-3.5 text-slate-300">${esc(p.last_egress_country || '-')}</td><td class="px-5 py-3.5 mono text-slate-300">${p.last_latency_ms ? esc(p.last_latency_ms) + 'ms' : '-'}</td><td class="px-5 py-3.5">${healthBadge(p.health_status)}</td></tr>`).join('') || '<tr><td colspan="6" class="px-5 py-10 text-center text-slate-500">暂无已分配 IP</td></tr>'}
+      <div class="px-5 py-4 border-b border-white/[0.06]"><h2 class="text-sm font-semibold text-white">静态 IP 池</h2><p class="text-xs text-slate-400 mt-0.5">每个用户最多一条系统分配的静态出口；支持重新探测与回收</p></div>
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-5 py-3">用户</th><th class="px-5 py-3">名称</th><th class="px-5 py-3">出口 IP</th><th class="px-5 py-3">地区</th><th class="px-5 py-3">延迟</th><th class="px-5 py-3">健康</th><th class="px-5 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
+        ${state.admin.proxies.map((p) => `<tr><td class="px-5 py-3.5 mono text-slate-400">${esc(p.user_id || '-')}</td><td class="px-5 py-3.5 text-slate-100">${esc(p.name || '-')}</td><td class="px-5 py-3.5 mono text-cyan-300">${esc(p.last_egress_ip || '-')}</td><td class="px-5 py-3.5 text-slate-300">${esc(p.last_egress_country || '-')}</td><td class="px-5 py-3.5 mono text-slate-300">${p.last_latency_ms ? esc(p.last_latency_ms) + 'ms' : '-'}</td><td class="px-5 py-3.5">${healthBadge(p.health_status)}</td><td class="px-5 py-3.5 text-right whitespace-nowrap"><button data-reprobe="${esc(p.id)}" class="px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 mr-1">重新探测</button><button data-revoke-proxy="${esc(p.id)}" data-uid="${esc(p.user_id)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20">回收</button></td></tr>`).join('') || '<tr><td colspan="7" class="px-5 py-10 text-center text-slate-500">暂无已分配 IP</td></tr>'}
       </tbody></table></div>
     </section>
 
@@ -812,6 +817,29 @@ function renderAdmin(container) {
   $('admin-refresh-btn').onclick = loadAndRender;
   container.querySelectorAll('[data-assign-ip]').forEach((btn) => {
     btn.onclick = () => openAssignIPModal(btn.dataset.assignIp, btn.dataset.email);
+  });
+  container.querySelectorAll('[data-plan]').forEach((btn) => {
+    btn.onclick = () => openPlanModal(btn.dataset.plan, btn.dataset.email, {
+      plan_status: btn.dataset.planStatus,
+      plan_expires_at: btn.dataset.planExpires,
+      max_concurrency: Number(btn.dataset.maxConcurrency),
+      status: btn.dataset.userStatus,
+    });
+  });
+  container.querySelectorAll('[data-revoke-ip]').forEach((btn) => {
+    btn.onclick = () => openRevokeIPModal(btn.dataset.revokeIp, btn.dataset.email);
+  });
+  container.querySelectorAll('[data-reprobe]').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        const r = await api('/admin/proxies/' + encodeURIComponent(btn.dataset.reprobe) + '/probe', { method: 'POST', body: '{}' });
+        showToast(`探测完成：${r.probe?.health_status || ''} ${r.probe?.egress_ip || ''}`, r.probe?.health_status === 'healthy' ? 'success' : 'warning');
+        await loadData(); render();
+      } catch (e) { showToast(e.message, 'error'); }
+    };
+  });
+  container.querySelectorAll('[data-revoke-proxy]').forEach((btn) => {
+    btn.onclick = () => openRevokeIPModal(btn.dataset.uid, btn.dataset.uid);
   });
   container.querySelectorAll('[data-admin-log-detail]').forEach((row) => {
     row.onclick = () => openLogDetailModal(row.dataset.adminLogDetail, 'admin');
@@ -840,6 +868,62 @@ function openAssignIPModal(userId, email) {
       const r = await api('/admin/users/' + encodeURIComponent(userId) + '/provision-ip', { method: 'POST', body: JSON.stringify(body) });
       closeModal();
       showToast(`已分配：${r.proxy?.last_egress_ip || body.host} · ${r.probe?.health_status || ''}`, 'success');
+      await loadData(); render();
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+}
+
+function openPlanModal(userId, email, u) {
+  openModal({
+    title: '管理用户套餐',
+    bodyHtml: `<div class="space-y-3.5 text-xs">
+      <div class="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-200">用户：<span class="mono">${esc(email)}</span><br/>套餐状态参与网关出站鉴权：非 <span class="mono">active</span> 会立即 Fail-Closed，已有请求不再放行。</div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-slate-300 mb-1.5">套餐状态</label><select id="f-plan-status" class="w-full px-3 py-2.5 rounded-xl bg-[#121726] border border-white/[0.1] text-white"><option value="unpaid">unpaid · 未付款</option><option value="active">active · 开通</option><option value="expired">expired · 到期</option><option value="cancelled">cancelled · 取消</option></select></div>
+        <div><label class="block text-slate-300 mb-1.5">账号状态</label><select id="f-user-status" class="w-full px-3 py-2.5 rounded-xl bg-[#121726] border border-white/[0.1] text-white"><option value="active">active · 正常</option><option value="disabled">disabled · 停用</option></select></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-slate-300 mb-1.5">续期天数（留空不改）</label><input id="f-plan-days" type="number" min="1" placeholder="如 30 / 90" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
+        <div><label class="block text-slate-300 mb-1.5">并发上限</label><input id="f-plan-concurrency" type="number" min="1" value="${esc(u.max_concurrency || 5)}" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
+      </div>
+      <p class="text-slate-500">当前到期：${esc(u.plan_expires_at || '未设置')}</p>
+    </div>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400">取消</button><button id="m-save-plan" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white">保存套餐</button>`,
+  });
+  $('f-plan-status').value = u.plan_status || 'unpaid';
+  $('f-user-status').value = u.status || 'active';
+  $('m-cancel').onclick = closeModal;
+  $('m-save-plan').onclick = async () => {
+    const days = $('f-plan-days').value.trim();
+    const body = {
+      plan_status: $('f-plan-status').value,
+      status: $('f-user-status').value,
+      max_concurrency: Number($('f-plan-concurrency').value),
+    };
+    if (days) body.plan_days = Number(days);
+    try {
+      await api('/admin/users/' + encodeURIComponent(userId) + '/plan', { method: 'PATCH', body: JSON.stringify(body) });
+      closeModal();
+      showToast('套餐已更新', 'success');
+      await loadData(); render();
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+}
+
+function openRevokeIPModal(userId, email) {
+  openModal({
+    title: '回收专属静态 IP',
+    bodyHtml: `<div class="space-y-3.5 text-xs">
+      <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-200">用户：<span class="mono">${esc(email)}</span><br/>回收后该用户绑定的上游账号失去代理，套餐同步置为 <span class="mono">expired</span>，所有网关请求立即 Fail-Closed。此操作不可撤销，但可重新分配 IP 恢复。</div>
+    </div>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400">取消</button><button id="m-revoke-ip" class="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 text-white">确认回收</button>`,
+  });
+  $('m-cancel').onclick = closeModal;
+  $('m-revoke-ip').onclick = async () => {
+    try {
+      await api('/admin/users/' + encodeURIComponent(userId) + '/ip', { method: 'DELETE' });
+      closeModal();
+      showToast('已回收静态 IP，套餐已停用', 'success');
       await loadData(); render();
     } catch (e) { showToast(e.message, 'error'); }
   };

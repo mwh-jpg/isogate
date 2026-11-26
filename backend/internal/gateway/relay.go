@@ -25,6 +25,7 @@ var (
 	ErrKeyInvalid    = errors.New("API Key 无效或已吊销")
 	ErrNoAccount     = errors.New("未绑定上游账号")
 	ErrProxyRequired = errors.New("账号要求代理出站但未绑定健康代理（Fail-Closed）")
+	ErrPlanInactive  = errors.New("套餐未开通或已停用（Fail-Closed）")
 	ErrAccountDown   = errors.New("账号冷却中")
 	ErrModelNotAllow = errors.New("模型不在 Key 允许列表")
 )
@@ -57,6 +58,12 @@ func (r *Resolver) Resolve(ctx context.Context, keyHash string) (*Resolved, erro
 	}
 	if key.Status != "active" {
 		return nil, ErrKeyInvalid
+	}
+	// 套餐状态参与出站鉴权：管理员停用/取消套餐后立即 Fail-Closed。
+	// 放在解析账号之前，避免为未付费/已停用租户做任何上游凭证解密。
+	user, err := r.repo.GetUserByID(ctx, key.UserID)
+	if err != nil || user.Status == "disabled" || user.PlanStatus != "active" {
+		return nil, ErrPlanInactive
 	}
 	// 账号必须属于同一 user（DB 复合外键 + 这里再次校验，零 IDOR）
 	account, err := r.repo.GetAccount(ctx, key.UserID, key.UpstreamAccountID)
