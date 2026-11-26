@@ -234,7 +234,12 @@ func (h *ResourceHandler) CreateAccount(c *gin.Context) {
 	a, p, err := h.repo.CreateAccountWithProxyFromPool(c.Request.Context(), uid, req.Provider, req.Name, base, credEnc, maxConc)
 	if err != nil {
 		if errors.Is(err, repository.ErrPoolEmpty) {
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			// 面向终端用户的可行动提示：不暴露「探测 healthy / 池条目」等管理员内部细节。
+			// 管理端 AssignAccountIP 仍返回 ErrPoolEmpty 原文，方便管理员定位与补库存。
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "静态 IP 资源池暂无可用 IP，当前无法添加上游账号。请联系管理员补充静态 IP 后再试。",
+				"code":  "ip_pool_empty",
+			})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

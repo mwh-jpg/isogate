@@ -121,6 +121,7 @@ async function api(path, opts = {}) {
   if (!r.ok) {
     const err = new Error(data.error || ('HTTP ' + r.status));
     err.status = r.status;
+    err.code = data.code || '';   // 后端可机读错误码，如 ip_pool_empty
     throw err;
   }
   return data;
@@ -556,6 +557,7 @@ function openAddAccountModal() {
     title: '绑定上游账号',
     bodyHtml: `
       <div class="space-y-3.5 text-xs">
+        <div id="f-acc-alert" class="hidden p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 leading-relaxed"></div>
         <div><label class="block font-medium text-slate-300 mb-1.5">账号显示名称</label><input id="f-acc-name" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white focus:outline-none focus:border-indigo-400" placeholder="例如：Anthropic 团队专用 Key" /></div>
         <div class="grid grid-cols-2 gap-3">
           <div><label class="block font-medium text-slate-300 mb-1.5">上游供应商</label><select id="f-acc-provider" class="w-full px-3 py-2.5 rounded-xl bg-[#121726] border border-white/[0.1] text-white focus:outline-none focus:border-indigo-400"><option value="anthropic_api">Anthropic Official API</option><option value="aws_bedrock">AWS Bedrock</option><option value="vertex_ai">Google Vertex AI</option><option value="custom_anthropic">Custom Anthropic</option></select></div>
@@ -563,7 +565,7 @@ function openAddAccountModal() {
         </div>
         <div><label class="block font-medium text-slate-300 mb-1.5">Base URL（可选）</label><input id="f-acc-base" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono focus:outline-none focus:border-indigo-400" placeholder="https://api.anthropic.com" /></div>
         <div><label class="block font-medium text-slate-300 mb-1.5">上游凭证（AES-256-GCM 加密）</label><input id="f-acc-cred" type="password" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono focus:outline-none focus:border-indigo-400" placeholder="sk-ant-api03-..." /></div>
-        <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 leading-relaxed">创建时系统会从静态 IP 资源池为该账号 <span class="font-semibold">单独分配一条独立出口</span>（一账号一 IP，不与其他账号共用），并强制 Fail-Closed。当前套餐：<span class="mono">${esc(plan)}</span>；若资源池无可用健康 IP，创建会失败并提示补充库存。</div>
+        <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 leading-relaxed">创建时系统会从静态 IP 资源池为该账号 <span class="font-semibold">单独分配一条独立出口</span>（一账号一 IP，不与其他账号共用），并强制 Fail-Closed。当前套餐：<span class="mono">${esc(plan)}</span>；若资源池暂无可用 IP，<span class="font-semibold">将无法添加账号，请联系管理员</span>补充静态 IP。</div>
       </div>`,
     footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400 hover:bg-white/[0.06]">取消</button><button id="m-save-acc" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white hover:bg-indigo-400">加密保存绑定</button>`,
   });
@@ -581,7 +583,17 @@ function openAddAccountModal() {
       closeModal();
       showToast('账号已加密保存，并分配了独立专属静态 IP', 'success');
       await loadData(); render();
-    } catch (e) { showToast(e.message, 'error'); }
+    } catch (e) {
+      if (e.code === 'ip_pool_empty') {
+        // 池耗尽是可预期的业务阻断：在弹窗内保留持久提示（toast 会消失），表单保持可重试。
+        const alert = $('f-acc-alert');
+        if (alert) {
+          alert.textContent = e.message;
+          alert.classList.remove('hidden');
+        }
+      }
+      showToast(e.message, 'error');
+    }
   };
 }
 

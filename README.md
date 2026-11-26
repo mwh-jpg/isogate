@@ -82,7 +82,7 @@ docker compose -f deploy/docker-compose.full.yml --env-file deploy/.env up -d
 管理面（JWT Bearer）：
 - `POST /api/v1/auth/register` `POST /api/v1/auth/login` `GET /api/v1/auth/me`
 - `GET /api/v1/proxies`（只读，列出该用户所有账号各自的专属静态 IP；用户不可创建/删除）
-- `POST/GET/DELETE /api/v1/accounts` · `POST /api/v1/accounts/:id/test`（套餐 `active` 时，每创建一个账号自动从资源池分配一条独立静态 IP，强制 Fail-Closed；池空则 409）
+- `POST/GET/DELETE /api/v1/accounts` · `POST /api/v1/accounts/:id/test`（套餐 `active` 时，每创建一个账号自动从资源池分配一条独立静态 IP，强制 Fail-Closed；池空返回 409 + `code=ip_pool_empty`，用户侧提示「无法添加上游账号，请联系管理员」）
 - `POST/GET/DELETE /api/v1/keys`
 - `GET /api/v1/logs` `GET /api/v1/stats/overview`
 
@@ -117,7 +117,10 @@ docker compose -f deploy/docker-compose.full.yml --env-file deploy/.env up -d
 - 前提：用户 `plan_status='active'`（付款开通）。创建账号时 `CreateAccountWithProxyFromPool` 在**单个事务**内完成：
   `FOR UPDATE SKIP LOCKED` 取一条 `available + healthy` 的池条目 → 建账号 → 池条目绑定 `assigned_account_id` →
   建 `proxy_endpoints(source='auto', upstream_account_id=账号)` → 回填 `account.proxy_id`。
-  池中没有健康 IP 时整个事务回滚并返回 409，绝不产生「无 IP 的账号」。
+  池中没有健康 IP 时整个事务回滚并返回 409（`code=ip_pool_empty`），绝不产生「无 IP 的账号」。
+  用户侧提示「静态 IP 资源池暂无可用 IP，当前无法添加上游账号。请联系管理员补充静态 IP 后再试」，
+  不暴露池探测 / healthy 判定等运维细节（控制台弹窗内持久显示，不会一闪而过）；
+  管理员在管理端按账号分配时仍能看到具体技术原因，便于定位补库存。
 - DB 层用部分唯一索引 `uq_auto_proxy_account`（按账号）与 `uq_ip_pool_assigned_account`（按账号）兜底；
   一个用户可同时持有多条 auto 出口，但同一账号 / 同一池条目最多一条。
 - 所有账号强制 `require_proxy=true`，用户无法关闭 Fail-Closed；Resolver 按 `account.proxy_id` 取出站口，
