@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS usage_logs (
     upstream_account_id    UUID REFERENCES upstream_accounts(id) ON DELETE SET NULL,
     proxy_id               UUID REFERENCES proxy_endpoints(id) ON DELETE SET NULL,
     requested_model        VARCHAR(128),
-    actual_model           VARCHAR(128),                 -- 上游响应真实 model（零掺水核验）
+    actual_model           VARCHAR(128),                 -- 上游响应真实 model（官方转发审计）
     upstream_request_id    VARCHAR(128),                 -- 上游 request-id
     egress_ip_snapshot     VARCHAR(64),
     status_code            INT,

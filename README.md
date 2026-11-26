@@ -1,6 +1,6 @@
 # Isolated AI Gateway
 
-强隔离、可验证零掺水的 BYO-Account AI API 网关。用户自带上游凭证，**平台在付款后自动分配专属静态出口 IP（一用户一 IP）**；网关只做**隔离转发 + 计量审计**，不混池、不换模型、不裸连。用户不再自行配置代理 IP。
+强隔离、带官方转发审计日志的 BYO-Account AI API 网关。用户自带上游凭证，**平台在付款后自动分配专属静态出口 IP（一用户一 IP）**；网关只做**隔离转发 + 计量审计**，不混池、不换模型、不裸连。用户不再自行配置代理 IP。
 
 > 这是依据 `claude_isolated_gateway_saas_plan.md` 落地的分 Phase 工程。合规定位：**默认优先官方 API Key / AWS Bedrock / Vertex AI**；个人订阅 OAuth 通道是一只高危可选通道，上游 ToS 风险由用户自行承担。
 
@@ -90,7 +90,7 @@ docker compose -f deploy/docker-compose.full.yml --env-file deploy/.env up -d
 3. **SSRF**：Dial 阶段两轮校验（解析后 + 实际连接后），阻断私网/回环/链路本地/云元数据 `169.254.169.254`，防 DNS Rebinding。
 4. **凭证加密**：API Key / 代理密码 AES-256-GCM 密文落库；密码 argon2id；日志不记录任何凭证或提示词正文。
 5. **Host 头投毒防护**：所有认证链接只从 `PUBLIC_BASE_URL` 生成，不信任 `Host`/`X-Forwarded-Host`。
-6. **可验证零掺水**：审计响应头带 `X-Gateway-Upstream-Request-Id`、`X-Gateway-Actual-Model`、`X-Gateway-Egress-Proxy-Id`；审计哈希链任何篡改都会断链；控制台逐笔对比 requested vs actual model。
+6. **官方转发审计日志**：审计响应头带 `X-Gateway-Upstream-Request-Id`、`X-Gateway-Actual-Model`、`X-Gateway-Egress-Proxy-Id`；审计哈希链任何篡改都会断链；控制台逐笔对比 requested vs actual model。
 
 ## 验收脚本
 

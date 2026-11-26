@@ -24,11 +24,11 @@ const state = {
 };
 
 const PAGE_META = {
-  overview: { title: '总览看板', subtitle: '单租户链路健康、Prompt Cache 命中率与零掺水透传实时监控' },
+  overview: { title: '总览看板', subtitle: '单租户链路健康、Prompt Cache 命中率与官方转发审计日志实时监控' },
   proxies: { title: '专属静态 IP', subtitle: '付款后系统自动分配，一个用户一个静态出口 IP，用户无需也无法自行配置' },
   accounts: { title: '上游账号与隔离绑定', subtitle: 'AES-256-GCM 加密存储凭证，自动绑定专属静态 IP 并强制 Fail-Closed' },
   keys: { title: '网关 API Key 与快速接入', subtitle: '签发绑定单租户上游的 sk-iso 密钥，一键生成 Claude Code / SDK 配置' },
-  logs: { title: '零掺水审计日志', subtitle: '逐笔记录请求模型、上游实际模型、request-id 与出口 IP，可完整核验' },
+  logs: { title: '官方转发审计日志', subtitle: '逐笔记录请求模型、上游实际模型、request-id 与出口 IP，可完整核验' },
   admin: { title: '管理后台', subtitle: '用户套餐、静态 IP 分配、全局审计与网关健康统一管理' },
 };
 
@@ -402,7 +402,7 @@ function renderOverview(container) {
 
     <section class="spotlight-card rounded-2xl overflow-hidden">
       <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
-        <div><h2 class="text-sm font-semibold text-white">最近「零掺水」核验记录</h2><p class="text-xs text-slate-400 mt-0.5">每笔请求均回传上游真实模型名与 request-id</p></div>
+        <div><h2 class="text-sm font-semibold text-white">最近官方转发审计日志</h2><p class="text-xs text-slate-400 mt-0.5">每笔请求均回传上游真实模型名与 request-id</p></div>
         <button data-jump="logs" class="text-xs font-medium text-cyan-400 inline-flex items-center gap-1">查看全部 <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i></button>
       </div>
       <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs">
@@ -775,7 +775,7 @@ function logTableHtml(rows, scope) {
       const attr = scope === 'admin' ? `data-admin-log-detail="${esc(l.id)}"` : `data-log-detail="${esc(l.id)}"`;
       return `<tr ${attr} class="hover:bg-white/[0.03] cursor-pointer">
         <td class="px-4 py-3.5 mono text-slate-400 whitespace-nowrap">${esc(fmtTime(l.created_at))}</td>
-        <td class="px-4 py-3.5"><div class="mono font-medium text-slate-100">${esc(l.requested_model || '-')}</div><div class="mt-0.5 text-[11px] ${verified ? 'text-emerald-400' : 'text-rose-400'}">${verified ? '实际一致 · 零掺水' : esc(l.error_message || (l.actual_model ? l.actual_model : '上游未响应'))}</div></td>
+        <td class="px-4 py-3.5"><div class="mono font-medium text-slate-100">${esc(l.requested_model || '-')}</div><div class="mt-0.5 text-[11px] ${verified ? 'text-emerald-400' : 'text-rose-400'}">${verified ? '实际一致 · 官方转发' : esc(l.error_message || (l.actual_model ? l.actual_model : '上游未响应'))}</div></td>
         <td class="px-4 py-3.5 mono text-slate-400 whitespace-nowrap">${esc(l.upstream_request_id || '-')}</td>
         <td class="px-4 py-3.5 mono text-cyan-300/90 whitespace-nowrap">${esc(l.egress_ip_snapshot || '-')}</td>
         <td class="px-4 py-3.5 text-right mono text-slate-300 whitespace-nowrap">${(l.input_tokens || 0).toLocaleString()} / <span class="text-emerald-400">${(l.cache_read_tokens || 0).toLocaleString()}</span> / ${(l.output_tokens || 0).toLocaleString()}</td>
@@ -793,7 +793,7 @@ function openLogDetailModal(id, source) {
   openModal({
     title: `审计核验详情 #${esc(l.id)}`,
     bodyHtml: `<div class="space-y-4 text-xs">
-      <div class="p-3.5 rounded-xl border ${verified ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200' : 'bg-rose-500/10 border-rose-500/30 text-rose-200'}"><div class="font-semibold">${verified ? '零掺水透传核验通过' : '请求被阻断或未完成时请求'}</div><div class="mt-1 opacity-90">${esc(l.error_message || '')}</div></div>
+      <div class="p-3.5 rounded-xl border ${verified ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200' : 'bg-rose-500/10 border-rose-500/30 text-rose-200'}"><div class="font-semibold">${verified ? '官方转发核验通过' : '请求被阻断或未完成时请求'}</div><div class="mt-1 opacity-90">${esc(l.error_message || '')}</div></div>
       <div class="grid grid-cols-2 gap-3.5 bg-white/[0.03] rounded-xl p-4 border border-white/[0.07]">
         <div><div class="text-slate-500">请求模型</div><div class="mono text-white mt-0.5">${esc(l.requested_model || '-')}</div></div>
         <div><div class="text-slate-500">实际模型</div><div class="mono text-white mt-0.5">${esc(l.actual_model || '-')}</div></div>

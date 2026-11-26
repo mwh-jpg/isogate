@@ -17,7 +17,7 @@ curl -sS -D /tmp/gw-headers.txt "$BASE/v1/messages" \
   -d "{\"model\":\"$MODEL\",\"max_tokens\":64,\"messages\":[{\"role\":\"user\",\"content\":\"Say OK\"}]}" \
   | tee /tmp/gw-body.json
 echo
-echo "--- 审计响应头（验证零掺水）---"
+echo "--- 审计响应头（官方转发审计日志核验）---"
 grep -i 'X-Gateway-' /tmp/gw-headers.txt || true
 
 echo "=== 3. 流式 SSE /v1/messages ==="

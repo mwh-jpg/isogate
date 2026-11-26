@@ -81,7 +81,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	// 公开审计校验：任何人可验证审计链完整性（自证零掺水）
+	// 公开审计校验：任何人可验证官方转发审计日志的哈希链完整性
 	r.GET("/api/audit/verify", func(c *gin.Context) {
 		res, err := auditChain.Verify(c.Request.Context())
 		if err != nil {

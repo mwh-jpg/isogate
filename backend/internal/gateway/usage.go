@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// UsageCapture 从 SSE 流中解析真实 usage（零掺水审计）。
+// UsageCapture 从 SSE 流中解析真实 usage（官方转发审计日志）。
 // 实现 io.Writer，作为 TeeReader 的接收端，不改动透传给客户端的字节。
 type UsageCapture struct {
 	mu            sync.Mutex
