@@ -109,3 +109,11 @@ BASE=http://localhost:8080 KEY=sk-iso-xxx bash deploy/e2e-verify.sh
 Go 1.24+ / Gin / pgx/v5 / go-redis/v9 / x/net(proxy) / argon2id；前端为免构建原生 HTML+JS（避免 npm 依赖）；PostgreSQL 16 + Redis 7。
 
 > 本机提示：Go 工具链 1.25.1 + 自动工具链，首次构建会自动拉取 go.mod 指定的 Go 版本；`GOTOOLCHAIN=local` 可禁用自动拉取（需本地版本 ≥ go.mod 指令）。
+
+## 加群交流
+
+扫码添加微信，备注 **IsoGate** 拉你进交流群。部署踩坑、静态 IP 接口对接、官方转发审计日志的使用反馈都可以在群里聊。
+
+<p align="center">
+  <img src="docs/wechat-qr.jpg" alt="IsoGate 加群交流微信二维码" width="260" />
+</p>
