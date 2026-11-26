@@ -20,13 +20,13 @@ const state = {
   logs: [],
   stats: { requests: 0, tokens: 0, avg_ttft_ms: 0, model_mismatch: 0 },
   chain: { ok: null, total: 0 },
-  admin: { overview: null, users: [], proxies: [], logs: [], ipPool: [], poolStats: {} },
+  admin: { overview: null, users: [], accounts: [], proxies: [], logs: [], ipPool: [], poolStats: {} },
 };
 
 const PAGE_META = {
   overview: { title: '总览看板', subtitle: '单租户链路健康、Prompt Cache 命中率与官方转发审计日志实时监控' },
-  proxies: { title: '专属静态 IP', subtitle: '付款后系统自动分配，一个用户一个静态出口 IP，用户无需也无法自行配置' },
-  accounts: { title: '上游账号与隔离绑定', subtitle: 'AES-256-GCM 加密存储凭证，自动绑定专属静态 IP 并强制 Fail-Closed' },
+  proxies: { title: '专属静态 IP', subtitle: '每个上游账号独占一条系统分配的静态出口 IP，账号之间不共用，用户无需也无法自行配置' },
+  accounts: { title: '上游账号与隔离绑定', subtitle: 'AES-256-GCM 加密存储凭证；创建账号时自动分配独立静态 IP 并强制 Fail-Closed' },
   keys: { title: '网关 API Key 与快速接入', subtitle: '签发绑定单租户上游的 sk-iso 密钥，一键生成 Claude Code / SDK 配置' },
   logs: { title: '官方转发审计日志', subtitle: '逐笔记录请求模型、上游实际模型、request-id 与出口 IP，可完整核验' },
   admin: { title: '管理后台', subtitle: '用户套餐、静态 IP 分配、全局审计与网关健康统一管理' },
@@ -162,8 +162,13 @@ function healthBadge(status) {
   return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-white/[0.05] text-slate-400 border border-white/[0.1]"><span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>未检测</span>';
 }
 
-function autoProxy() {
-  return state.proxies.find((p) => p.source === 'auto') || state.proxies[0] || null;
+// 一账号一 IP：优先按 proxy.upstream_account_id 精确匹配；
+// legacy 出口（尚无 account_id）按 account.proxy_id 兜底。
+function proxyForAccount(accountId) {
+  const byOwner = state.proxies.find((p) => p.upstream_account_id === accountId);
+  if (byOwner) return byOwner;
+  const acc = getAccount(accountId);
+  return acc?.proxy_id ? state.proxies.find((p) => p.id === acc.proxy_id) || null : null;
 }
 
 function getAccount(id) { return state.accounts.find((a) => a.id === id); }
@@ -201,7 +206,7 @@ function logout() {
   state.accounts = [];
   state.keys = [];
   state.logs = [];
-  state.admin = { overview: null, users: [], proxies: [], logs: [], ipPool: [], poolStats: {} };
+  state.admin = { overview: null, users: [], accounts: [], proxies: [], logs: [], ipPool: [], poolStats: {} };
   location.replace('login.html');
 }
 
@@ -225,16 +230,18 @@ async function loadData() {
     state.chain = await apiPublic(AUDIT_URL).catch(() => ({ ok: null }));
 
     if (isAdmin()) {
-      const [overview, users, adminProxies, adminLogs, pool] = await Promise.all([
+      const [overview, users, adminProxies, adminLogs, pool, adminAccounts] = await Promise.all([
         api('/admin/overview').catch(() => null),
         api('/admin/users').catch(() => []),
         api('/admin/proxies').catch(() => []),
         api('/admin/logs?limit=200').catch(() => []),
         api('/admin/ip-pool').catch(() => ({ items: [], stats: {} })),
+        api('/admin/accounts').catch(() => []),
       ]);
       state.admin = {
         overview,
         users: Array.isArray(users) ? users : [],
+        accounts: Array.isArray(adminAccounts) ? adminAccounts : [],
         proxies: Array.isArray(adminProxies) ? adminProxies : [],
         logs: Array.isArray(adminLogs) ? adminLogs : [],
         ipPool: Array.isArray(pool?.items) ? pool.items : [],
@@ -269,8 +276,7 @@ function render() {
   });
   $('admin-nav').classList.toggle('hidden', !isAdmin());
 
-  const proxyCount = autoProxy() ? 1 : 0;
-  $('badge-proxies').textContent = String(proxyCount);
+  $('badge-proxies').textContent = String(state.proxies.filter((p) => p.source === 'auto').length);
   $('badge-accounts').textContent = String(state.accounts.length);
   $('badge-keys').textContent = String(state.keys.filter((k) => k.status === 'active').length);
 
@@ -309,14 +315,14 @@ function renderOverview(container) {
   const sumCache = okLogs.reduce((s, l) => s + (l.cache_read_tokens || 0), 0);
   const cacheHit = sumInput ? Math.round((sumCache / sumInput) * 100) : 0;
   const avgTtft = okLogs.length ? Math.round(okLogs.reduce((s, l) => s + (l.ttft_ms || 0), 0) / okLogs.length) : 0;
-  const proxy = autoProxy();
+  const autoProxies = state.proxies.filter((p) => p.source === 'auto');
 
   container.innerHTML = `
     <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
       ${kpiCard('近期请求 / 成功率', 'activity', `${logs.length}`, `${successRate}% 正常透传`, 'indigo', `含 Fail-Closed 拦截 ${logs.length - okLogs.length} 次`)}
       ${kpiCard('Prompt Cache 命中率', 'zap', `${cacheHit}%`, `${(sumCache / 1000).toFixed(1)}k tok`, 'emerald', '原生透传缓存头，无上下文篡改')}
       ${kpiCard('平均首字延迟 (TTFT)', 'timer', `${avgTtft}<span class="text-base font-medium text-slate-400 ml-1">ms</span>`, 'SSE 零缓冲', 'cyan', '独立 Transport 连接池复用')}
-      ${kpiCard('专属静态 IP', 'globe-lock', proxy ? '1' : '0', proxy ? healthBadge(proxy.health_status) : '未开通', 'amber', '一用户一 IP · 付款后自动分配')}
+      ${kpiCard('专属静态 IP', 'globe-lock', String(autoProxies.length), autoProxies.length ? `${autoProxies.filter((p) => p.health_status === 'healthy').length} 条健康` : '未开通', 'amber', '一账号一 IP · 每个上游账号独立出口')}
     </section>
 
     <section class="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -341,6 +347,7 @@ function renderOverview(container) {
         </div>
         <div class="space-y-3 flex-1">
           ${state.accounts.map((acc) => {
+            const proxy = proxyForAccount(acc.id);
             const isOk = acc.status === 'active' && proxy && proxy.health_status === 'healthy';
             return `
               <div class="rounded-xl p-3.5 border ${isOk ? 'bg-white/[0.025] border-white/[0.07]' : 'bg-rose-500/[0.06] border-rose-500/25'}">
@@ -457,42 +464,47 @@ function bindLogRows(container) {
 // Static IP (read-only)
 // ---------------------------------------------------------------------------
 function renderProxies(container) {
-  const p = autoProxy();
   const plan = state.user?.plan_status || 'unpaid';
+  const list = state.proxies.filter((p) => p.source === 'auto');
   container.innerHTML = `
     <div class="spotlight-card rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-indigo-500/25">
       <div class="flex items-start gap-3.5">
         <div class="p-2.5 rounded-xl bg-indigo-500/15 text-indigo-300 border border-indigo-400/25 shrink-0"><i data-lucide="shield-check" class="w-4 h-4"></i></div>
         <div>
-          <h3 class="text-xs font-semibold text-white">静态 IP 由系统统一分配 · 一用户一 IP</h3>
-          <p class="text-xs text-slate-400 mt-1 leading-relaxed">付款开通后自动分配专属静态出口 IP 并完成健康探测；用户端不再提供自填代理入口，避免误配与 IP 漂移。</p>
+          <h3 class="text-xs font-semibold text-white">静态 IP 由系统统一分配 · 一账号一 IP</h3>
+          <p class="text-xs text-slate-400 mt-1 leading-relaxed">每绑定一个上游账号，系统就从静态 IP 资源池为它分配一条独立专属出口并完成健康探测；账号之间绝不共用出口，用户端不提供自填代理入口。</p>
         </div>
       </div>
       <button id="refresh-ip-btn" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-white/[0.06] text-slate-200 border border-white/[0.1] hover:bg-white/[0.1] shrink-0"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>刷新状态</button>
     </div>
 
-    ${p ? `
-      <div class="spotlight-card rounded-2xl p-5">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase mono bg-indigo-500/15 text-indigo-300 border border-indigo-400/25">${esc(p.scheme || '-')}</span><h3 class="text-sm font-semibold text-white">${esc(p.name || '专属静态 IP')}</h3></div>
-            <div class="mt-2 text-xs mono text-slate-400">${esc(p.host || '-')}:${esc(p.port || '-')}</div>
+    ${list.length ? `<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      ${list.map((p) => {
+        const acc = p.upstream_account_id ? getAccount(p.upstream_account_id) : null;
+        const owner = acc ? acc.name : (p.upstream_account_id ? esc(p.upstream_account_id.slice(0, 8)) + '…' : '未绑定（占位）');
+        return `<div class="spotlight-card rounded-2xl p-5">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase mono bg-indigo-500/15 text-indigo-300 border border-indigo-400/25">${esc(p.scheme || '-')}</span><h3 class="text-sm font-semibold text-white">${esc(p.name || '专属静态 IP')}</h3></div>
+              <div class="mt-2 text-xs mono text-slate-400">${esc(p.host || '-')}:${esc(p.port || '-')}</div>
+              <div class="mt-1.5 text-[11px] text-slate-500">绑定账号：<span class="text-cyan-300">${owner}</span></div>
+            </div>
+            ${healthBadge(p.health_status)}
           </div>
-          ${healthBadge(p.health_status)}
-        </div>
-        <div class="mt-4 pt-4 border-t border-white/[0.06] grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs">
-          <div><div class="text-[11px] text-slate-500">出口 IP</div><div class="mono font-medium text-cyan-300 mt-0.5">${esc(p.last_egress_ip || '待探测')}</div></div>
-          <div><div class="text-[11px] text-slate-500">归属地</div><div class="font-medium text-slate-200 mt-0.5">${esc(p.last_egress_country || '-')}</div></div>
-          <div><div class="text-[11px] text-slate-500">探测延迟</div><div class="mono font-medium text-emerald-400 mt-0.5">${p.last_latency_ms ? esc(p.last_latency_ms) + 'ms' : '-'}</div></div>
-          <div><div class="text-[11px] text-slate-500">分配方式</div><div class="font-medium text-slate-200 mt-0.5">系统自动分配</div></div>
-        </div>
-        <div class="mt-4 text-[11px] text-slate-500">最近检测：${esc(fmtTime(p.last_checked_at))} · 套餐状态：<span class="mono text-slate-300">${esc(plan)}</span>${state.user?.plan_expires_at ? ' · 到期 ' + esc(fmtTime(state.user.plan_expires_at)) : ''}</div>
-      </div>
-    ` : `
+          <div class="mt-4 pt-4 border-t border-white/[0.06] grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div><div class="text-[11px] text-slate-500">出口 IP</div><div class="mono font-medium text-cyan-300 mt-0.5">${esc(p.last_egress_ip || '待探测')}</div></div>
+            <div><div class="text-[11px] text-slate-500">归属地</div><div class="font-medium text-slate-200 mt-0.5">${esc(p.last_egress_country || '-')}</div></div>
+            <div><div class="text-[11px] text-slate-500">探测延迟</div><div class="mono font-medium text-emerald-400 mt-0.5">${p.last_latency_ms ? esc(p.last_latency_ms) + 'ms' : '-'}</div></div>
+            <div><div class="text-[11px] text-slate-500">分配方式</div><div class="font-medium text-slate-200 mt-0.5">账号专属</div></div>
+          </div>
+          <div class="mt-4 text-[11px] text-slate-500">最近检测：${esc(fmtTime(p.last_checked_at))} · 套餐状态：<span class="mono text-slate-300">${esc(plan)}</span></div>
+        </div>`;
+      }).join('')}
+    </div>` : `
       <div class="spotlight-card rounded-2xl p-10 text-center">
         <i data-lucide="globe-lock" class="w-8 h-8 text-slate-500 mx-auto"></i>
         <h3 class="text-sm font-semibold text-slate-200 mt-3">尚未分配静态 IP</h3>
-        <p class="text-xs text-slate-500 mt-2">当前套餐状态：${esc(plan)}。付款成功后系统会自动为您分配专属静态 IP 并开启 Fail-Closed 出站。</p>
+        <p class="text-xs text-slate-500 mt-2">当前套餐状态：${esc(plan)}。付款开通后，每绑定一个上游账号，系统会自动从资源池为它分配一条独立静态 IP 并开启 Fail-Closed 出站。</p>
       </div>
     `}
   `;
@@ -503,15 +515,15 @@ function renderProxies(container) {
 // Upstream accounts
 // ---------------------------------------------------------------------------
 function renderAccounts(container) {
-  const p = autoProxy();
   container.innerHTML = `
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <div class="text-xs text-slate-400">所有上游凭证均使用 <span class="mono font-semibold text-cyan-300">AES-256-GCM</span> 加密落库，并自动绑定系统分配的专属静态 IP。</div>
+      <div class="text-xs text-slate-400">所有上游凭证均使用 <span class="mono font-semibold text-cyan-300">AES-256-GCM</span> 加密落库；<span class="text-cyan-300">每个账号独占一条</span>系统从资源池自动分配的静态 IP，账号之间不共用出口。</div>
       <button id="add-account-btn" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white hover:bg-indigo-400 shadow-lg shadow-indigo-500/25"><i data-lucide="plus" class="w-4 h-4"></i>绑定上游账号</button>
     </div>
     <div class="space-y-4">
       ${state.accounts.map((acc) => {
         const pm = providerMeta(acc.provider);
+        const p = proxyForAccount(acc.id);
         const ok = acc.status === 'active' && p && p.health_status === 'healthy';
         return `<div class="spotlight-card rounded-2xl p-5">
           <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -539,8 +551,7 @@ function renderAccounts(container) {
 }
 
 function openAddAccountModal() {
-  const p = autoProxy();
-  if (!p) { showToast('套餐未开通，静态 IP 由系统付款后自动分配', 'warning'); return; }
+  const plan = state.user?.plan_status || 'unpaid';
   openModal({
     title: '绑定上游账号',
     bodyHtml: `
@@ -552,7 +563,7 @@ function openAddAccountModal() {
         </div>
         <div><label class="block font-medium text-slate-300 mb-1.5">Base URL（可选）</label><input id="f-acc-base" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono focus:outline-none focus:border-indigo-400" placeholder="https://api.anthropic.com" /></div>
         <div><label class="block font-medium text-slate-300 mb-1.5">上游凭证（AES-256-GCM 加密）</label><input id="f-acc-cred" type="password" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono focus:outline-none focus:border-indigo-400" placeholder="sk-ant-api03-..." /></div>
-        <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300">将自动绑定系统分配的静态 IP <span class="mono">${esc(p.last_egress_ip || p.host)}</span>，并强制 Fail-Closed。</div>
+        <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 leading-relaxed">创建时系统会从静态 IP 资源池为该账号 <span class="font-semibold">单独分配一条独立出口</span>（一账号一 IP，不与其他账号共用），并强制 Fail-Closed。当前套餐：<span class="mono">${esc(plan)}</span>；若资源池无可用健康 IP，创建会失败并提示补充库存。</div>
       </div>`,
     footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400 hover:bg-white/[0.06]">取消</button><button id="m-save-acc" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white hover:bg-indigo-400">加密保存绑定</button>`,
   });
@@ -564,11 +575,11 @@ function openAddAccountModal() {
     try {
       await api('/accounts', { method: 'POST', body: JSON.stringify({
         name, provider: $('f-acc-provider').value, base_url: $('f-acc-base').value.trim(),
-        credential, proxy_id: p.id, require_proxy: true,
+        credential,
         max_concurrency: Math.max(1, Number($('f-acc-conc').value) || 2),
       }) });
       closeModal();
-      showToast('账号已加密保存并绑定专属静态 IP', 'success');
+      showToast('账号已加密保存，并分配了独立专属静态 IP', 'success');
       await loadData(); render();
     } catch (e) { showToast(e.message, 'error'); }
   };
@@ -777,16 +788,17 @@ function renderAdmin(container) {
   if (!isAdmin()) { container.innerHTML = '<div class="spotlight-card p-10 text-center text-xs text-slate-500">仅管理员可见</div>'; return; }
   const ov = state.admin.overview || {};
   const s = state.admin.poolStats || {};
+  const emailOf = (uid) => state.admin.users.find((u) => u.id === uid)?.email || (uid ? uid.slice(0, 8) + '…' : '-');
   container.innerHTML = `
     <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
       ${kpiCard('注册用户', 'users', esc(ov.users ?? state.admin.users.length), '全平台', 'indigo', '租户总数')}
-      ${kpiCard('已开通套餐', 'badge-check', esc(ov.active_plans ?? state.admin.users.filter((u) => u.plan_status === 'active').length), '付费用户', 'emerald', '付款后自动分配 IP')}
-      ${kpiCard('已分配静态 IP', 'globe-lock', esc(ov.assigned_ips ?? state.admin.proxies.length), '一用户一 IP', 'cyan', 'Fail-Closed 强制')}
+      ${kpiCard('已开通套餐', 'badge-check', esc(ov.active_plans ?? state.admin.users.filter((u) => u.plan_status === 'active').length), '付费用户', 'emerald', '每个账号各自分配独立出口')}
+      ${kpiCard('已分配静态 IP', 'globe-lock', esc(ov.assigned_ips ?? state.admin.proxies.length), '一账号一 IP', 'cyan', 'Fail-Closed 强制')}
       ${kpiCard('请求 / 模型不一致', 'shield-alert', esc(ov.requests ?? state.stats.requests), String(ov.model_mismatch ?? state.stats.model_mismatch ?? 0), 'amber', '审计链 ' + (state.chain.ok === true ? '完整' : '待校验'))}
     </section>
 
     <section class="spotlight-card rounded-2xl overflow-hidden">
-      <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between"><div><h2 class="text-sm font-semibold text-white">用户与套餐</h2><p class="text-xs text-slate-400 mt-0.5">套餐状态参与出站鉴权；静态 IP 可按用户分配、更换或回收</p></div><button id="admin-refresh-btn" class="text-xs px-3 py-1.5 rounded-lg bg-white/[0.05] text-slate-200">刷新</button></div>
+      <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between"><div><h2 class="text-sm font-semibold text-white">用户与套餐</h2><p class="text-xs text-slate-400 mt-0.5">套餐状态参与出站鉴权；静态 IP 请在下方「账号与 IP」按账号管理（一账号一 IP）</p></div><button id="admin-refresh-btn" class="text-xs px-3 py-1.5 rounded-lg bg-white/[0.05] text-slate-200">刷新</button></div>
       <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-5 py-3">邮箱</th><th class="px-5 py-3">角色</th><th class="px-5 py-3">套餐</th><th class="px-5 py-3">静态 IP</th><th class="px-5 py-3">到期</th><th class="px-5 py-3">并发</th><th class="px-5 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
         ${state.admin.users.map((u) => `<tr>
           <td class="px-5 py-3.5 font-medium text-slate-100">${esc(u.email)}</td>
@@ -797,12 +809,34 @@ function renderAdmin(container) {
           <td class="px-5 py-3.5 mono text-slate-400">${esc(u.max_concurrency || 5)}</td>
           <td class="px-5 py-3.5 text-right whitespace-nowrap">
             <button data-plan="${esc(u.id)}" data-email="${esc(u.email)}" data-plan-status="${esc(u.plan_status || 'unpaid')}" data-plan-expires="${esc(u.plan_expires_at || '')}" data-max-concurrency="${esc(u.max_concurrency || 5)}" data-user-status="${esc(u.status || 'active')}" class="px-2.5 py-1 rounded-lg bg-white/[0.05] text-slate-200 hover:bg-white/[0.1] mr-1">套餐</button>
-            <button data-assign-pool="${esc(u.id)}" data-email="${esc(u.email)}" title="从 IP 池自动取一条 available+healthy 的 IP" class="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 mr-1">从池分配</button>
-            <button data-assign-ip="${esc(u.id)}" data-email="${esc(u.email)}" title="手动指定一个静态 IP（占位入口）" class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 mr-1">${u.assigned_ip ? '更换 IP' : '分配 IP'}</button>
-            <button data-revoke-ip="${esc(u.id)}" data-email="${esc(u.email)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20" ${u.assigned_ip ? '' : 'disabled'}>回收</button>
+            <button data-assign-pool="${esc(u.id)}" data-email="${esc(u.email)}" title="兼容入口：给用户分配一条占位 IP（新账号会自动从池取独立 IP）" class="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 mr-1">从池分配</button>
+            <button data-assign-ip="${esc(u.id)}" data-email="${esc(u.email)}" title="兼容入口：手动指定一个占位静态 IP" class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 mr-1">${u.assigned_ip ? '更换 IP' : '分配 IP'}</button>
+            <button data-revoke-ip="${esc(u.id)}" data-email="${esc(u.email)}" title="回收该用户全部静态 IP 并停用套餐" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20" ${u.assigned_ip ? '' : 'disabled'}>回收全部</button>
           </td>
         </tr>`).join('') || '<tr><td colspan="7" class="px-5 py-10 text-center text-slate-500">暂无用户</td></tr>'}
       </tbody></table></div>
+    </section>
+
+    <section class="spotlight-card rounded-2xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-3">
+        <div><h2 class="text-sm font-semibold text-white">账号与 IP（一账号一 IP）</h2><p class="text-xs text-slate-400 mt-0.5">每个上游账号独占一条静态出口；创建账号时自动从资源池分配，此处可单独更换或回收，不影响同用户其他账号</p></div>
+        <span class="text-[11px] text-slate-500">共 ${state.admin.accounts.length} 个账号</span>
+      </div>
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-4 py-3">上游账号</th><th class="px-4 py-3">所属用户</th><th class="px-4 py-3">供应商</th><th class="px-4 py-3">专属出口 IP</th><th class="px-4 py-3">健康</th><th class="px-4 py-3">隔离</th><th class="px-4 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
+        ${state.admin.accounts.map((a) => `<tr>
+          <td class="px-4 py-3.5"><div class="font-medium text-slate-100">${esc(a.name)}</div><div class="mono text-[10px] text-slate-500 mt-0.5">${esc(a.id.slice(0, 8))}…</div></td>
+          <td class="px-4 py-3.5 text-slate-300">${esc(emailOf(a.user_id))}</td>
+          <td class="px-4 py-3.5 mono text-slate-400">${esc(a.provider)}</td>
+          <td class="px-4 py-3.5 mono text-cyan-300">${esc(a.assigned_ip || '未分配')}</td>
+          <td class="px-4 py-3.5">${a.proxy_health ? healthBadge(a.proxy_health) : '<span class="text-slate-600">-</span>'}</td>
+          <td class="px-4 py-3.5">${a.exclusive === false ? '<span class="px-2 py-0.5 rounded-full text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/25">legacy 共用</span>' : '<span class="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">独占</span>'}</td>
+          <td class="px-4 py-3.5 text-right whitespace-nowrap">
+            <button data-acct-assign="${esc(a.id)}" class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 mr-1">${a.assigned_ip ? '更换 IP' : '分配 IP'}</button>
+            <button data-acct-revoke="${esc(a.id)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20" ${a.assigned_ip ? '' : 'disabled'}>回收</button>
+          </td>
+        </tr>`).join('') || '<tr><td colspan="7" class="px-5 py-10 text-center text-slate-500">暂无上游账号</td></tr>'}
+      </tbody></table></div>
+      <div class="px-5 py-3 border-t border-white/[0.06] text-[11px] text-slate-500">「分配/更换 IP」从资源池取一条 available+healthy 的条目；「回收」删除该账号出口并把池条目释放回 available，账号保留但立即 Fail-Closed。legacy 共用的出口建议逐个更换以完成拆分。</div>
     </section>
 
     <section class="spotlight-card rounded-2xl overflow-hidden">
@@ -818,26 +852,26 @@ function renderAdmin(container) {
         ${poolStatChip('已分配', s.assigned ?? 0, 'amber')}
         ${poolStatChip('已停用', s.disabled ?? 0, 'slate')}
       </div>
-      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-4 py-3">端点</th><th class="px-4 py-3">状态</th><th class="px-4 py-3">出口 IP / 地区 / 延迟</th><th class="px-4 py-3">健康</th><th class="px-4 py-3">绑定用户</th><th class="px-4 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-4 py-3">端点</th><th class="px-4 py-3">状态</th><th class="px-4 py-3">出口 IP / 地区 / 延迟</th><th class="px-4 py-3">健康</th><th class="px-4 py-3">绑定账号 / 用户</th><th class="px-4 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
         ${state.admin.ipPool.map((p) => `<tr>
           <td class="px-4 py-3.5"><div class="text-slate-100 font-medium">${esc(p.name || '未命名 IP')}</div><div class="mono text-[11px] text-cyan-300/80 mt-0.5">${esc(p.scheme)}://${esc(p.host)}:${esc(p.port)}</div></td>
           <td class="px-4 py-3.5">${poolStatusBadge(p.status)}</td>
           <td class="px-4 py-3.5"><div class="mono text-cyan-300">${esc(p.last_egress_ip || '待探测')}</div><div class="text-[11px] text-slate-500 mt-0.5">${esc(p.last_egress_country || '-')}${p.last_latency_ms ? ' · ' + esc(p.last_latency_ms) + 'ms' : ''}</div></td>
           <td class="px-4 py-3.5">${healthBadge(p.health_status)}</td>
-          <td class="px-4 py-3.5 mono text-slate-400">${esc(p.assigned_user_id || '-')}</td>
+          <td class="px-4 py-3.5"><div class="mono text-[11px] ${p.assigned_account_id ? 'text-amber-300' : 'text-slate-500'}">${p.assigned_account_id ? '账号 ' + esc(p.assigned_account_id.slice(0, 8)) + '…' : (p.assigned_user_id ? '占位分配' : '-')}</div><div class="mono text-[10px] text-slate-500 mt-0.5">${p.assigned_user_id ? '用户 ' + esc(p.assigned_user_id.slice(0, 8)) + '…' : '-'}</div></td>
           <td class="px-4 py-3.5 text-right whitespace-nowrap">
             <button data-pool-probe="${esc(p.id)}" class="px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 mr-1">探测</button>
             ${p.status === 'assigned' ? '<span class="text-[11px] text-slate-600">使用中 · 需先回收</span>' : `<button data-pool-toggle="${esc(p.id)}" data-pool-status="${esc(p.status)}" class="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 mr-1">${p.status === 'disabled' ? '启用' : '停用'}</button><button data-pool-delete="${esc(p.id)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20">删除</button>`}
           </td>
         </tr>`).join('') || '<tr><td colspan="6" class="px-5 py-10 text-center text-slate-500">IP 池为空，点右上角「批量添加 IP」开始录入</td></tr>'}
       </tbody></table></div>
-      <div class="px-5 py-3 border-t border-white/[0.06] text-[11px] text-slate-500">录入后需逐条「探测」变为 <span class="mono text-emerald-400">healthy</span> 才会进入可分配队列；已分配条目需先在用户表「回收」释放回库存。</div>
+      <div class="px-5 py-3 border-t border-white/[0.06] text-[11px] text-slate-500">录入后需逐条「探测」变为 <span class="mono text-emerald-400">healthy</span> 才会进入可分配队列；已分配条目需在「账号与 IP」表回收后释放回库存。</div>
     </section>
 
     <section class="spotlight-card rounded-2xl overflow-hidden">
-      <div class="px-5 py-4 border-b border-white/[0.06]"><h2 class="text-sm font-semibold text-white">已分配出口（proxy_endpoints）</h2><p class="text-xs text-slate-400 mt-0.5">从池分配或手动指定后写入的用户专属出口；支持重新探测与回收</p></div>
-      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-5 py-3">用户</th><th class="px-5 py-3">名称</th><th class="px-5 py-3">出口 IP</th><th class="px-5 py-3">地区</th><th class="px-5 py-3">延迟</th><th class="px-5 py-3">健康</th><th class="px-5 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
-        ${state.admin.proxies.map((p) => `<tr><td class="px-5 py-3.5 mono text-slate-400">${esc(p.user_id || '-')}</td><td class="px-5 py-3.5 text-slate-100">${esc(p.name || '-')}</td><td class="px-5 py-3.5 mono text-cyan-300">${esc(p.last_egress_ip || '-')}</td><td class="px-5 py-3.5 text-slate-300">${esc(p.last_egress_country || '-')}</td><td class="px-5 py-3.5 mono text-slate-300">${p.last_latency_ms ? esc(p.last_latency_ms) + 'ms' : '-'}</td><td class="px-5 py-3.5">${healthBadge(p.health_status)}</td><td class="px-5 py-3.5 text-right whitespace-nowrap"><button data-reprobe="${esc(p.id)}" class="px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 mr-1">重新探测</button><button data-revoke-proxy="${esc(p.id)}" data-uid="${esc(p.user_id)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20">回收</button></td></tr>`).join('') || '<tr><td colspan="7" class="px-5 py-10 text-center text-slate-500">暂无已分配 IP</td></tr>'}
+      <div class="px-5 py-4 border-b border-white/[0.06]"><h2 class="text-sm font-semibold text-white">已分配出口（proxy_endpoints）</h2><p class="text-xs text-slate-400 mt-0.5">每条出口专属绑定一个上游账号；支持重新探测与回收</p></div>
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-5 py-3">用户</th><th class="px-5 py-3">名称</th><th class="px-5 py-3">绑定账号</th><th class="px-5 py-3">出口 IP</th><th class="px-5 py-3">地区</th><th class="px-5 py-3">延迟</th><th class="px-5 py-3">健康</th><th class="px-5 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
+        ${state.admin.proxies.map((p) => `<tr><td class="px-5 py-3.5 mono text-slate-400">${esc(p.user_id || '-')}</td><td class="px-5 py-3.5 text-slate-100">${esc(p.name || '-')}</td><td class="px-5 py-3.5 mono text-[11px] ${p.upstream_account_id ? 'text-amber-300' : 'text-slate-600'}">${p.upstream_account_id ? esc(p.upstream_account_id.slice(0, 8)) + '…' : 'legacy'}</td><td class="px-5 py-3.5 mono text-cyan-300">${esc(p.last_egress_ip || '-')}</td><td class="px-5 py-3.5 text-slate-300">${esc(p.last_egress_country || '-')}</td><td class="px-5 py-3.5 mono text-slate-300">${p.last_latency_ms ? esc(p.last_latency_ms) + 'ms' : '-'}</td><td class="px-5 py-3.5">${healthBadge(p.health_status)}</td><td class="px-5 py-3.5 text-right whitespace-nowrap"><button data-reprobe="${esc(p.id)}" class="px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 mr-1">重新探测</button><button data-revoke-proxy="${esc(p.id)}" data-uid="${esc(p.user_id)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20">回收</button></td></tr>`).join('') || '<tr><td colspan="8" class="px-5 py-10 text-center text-slate-500">暂无已分配 IP</td></tr>'}
       </tbody></table></div>
     </section>
 
@@ -850,6 +884,27 @@ function renderAdmin(container) {
   `;
   $('admin-refresh-btn').onclick = loadAndRender;
   $('pool-add-btn').onclick = openAddIPPoolModal;
+  container.querySelectorAll('[data-acct-assign]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm('从资源池为该账号分配/更换一条独立静态 IP？其他账号的出口不受影响。')) return;
+      btn.disabled = true;
+      try {
+        const r = await api('/admin/accounts/' + encodeURIComponent(btn.dataset.acctAssign) + '/assign-ip', { method: 'POST', body: '{}' });
+        showToast(`已分配 ${r.proxy?.last_egress_ip || r.pool_item?.host || ''}`, 'success');
+        await loadData(); render();
+      } catch (e) { showToast(e.message, 'error'); btn.disabled = false; }
+    };
+  });
+  container.querySelectorAll('[data-acct-revoke]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm('回收该账号的专属静态 IP？回收后该账号立即 Fail-Closed。')) return;
+      try {
+        await api('/admin/accounts/' + encodeURIComponent(btn.dataset.acctRevoke) + '/ip', { method: 'DELETE' });
+        showToast('已回收并释放回资源池', 'info');
+        await loadData(); render();
+      } catch (e) { showToast(e.message, 'error'); }
+    };
+  });
   container.querySelectorAll('[data-assign-pool]').forEach((btn) => {
     btn.onclick = () => openAssignFromPoolModal(btn.dataset.assignPool, btn.dataset.email);
   });

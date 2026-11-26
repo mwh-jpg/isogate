@@ -200,13 +200,14 @@ func (h *ResourceHandler) CreateAccount(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "非法 provider"})
 		return
 	}
-	// 用户不可自选代理：强制绑定到系统付款后自动分配的专属静态 IP（零 IDOR）。
-	p, err := h.repo.GetAutoProxy(c.Request.Context(), uid)
-	if err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "套餐未开通或静态 IP 未分配，付款后系统将自动分配"})
+	// 套餐 active 是前提；每个上游账号创建时从静态 IP 资源池取一条独立出口（一账号一 IP）。
+	// 用户不可自选代理：req.ProxyID 强制忽略，绝不信任客户端传入的 proxy_id。
+	u, err := h.repo.GetUserByID(c.Request.Context(), uid)
+	if err != nil || u.Status != "active" || u.PlanStatus != "active" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "套餐未开通或已停用，付款后系统才会为每个上游账号自动分配专属静态 IP"})
 		return
 	}
-	req.ProxyID = &p.ID
+	_ = req.ProxyID
 	base := req.BaseURL
 	if base == "" {
 		base = h.cfg.AnthropicBaseURL
@@ -224,17 +225,23 @@ func (h *ResourceHandler) CreateAccount(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "凭证加密失败"})
 		return
 	}
-	// Fail-Closed 强制开启，用户不可关闭。
-	requireProxy := true
+	// Fail-Closed 强制开启，用户不可关闭；每个账号的出口由 CreateAccountWithProxyFromPool 原子分配。
 	_ = req.RequireProxy
 	maxConc := req.MaxConc
 	if maxConc <= 0 {
 		maxConc = 2
 	}
-	a, err := h.repo.CreateAccount(c.Request.Context(), uid, req.ProxyID, req.Provider, req.Name, base, credEnc, requireProxy, maxConc)
+	a, p, err := h.repo.CreateAccountWithProxyFromPool(c.Request.Context(), uid, req.Provider, req.Name, base, credEnc, maxConc)
 	if err != nil {
+		if errors.Is(err, repository.ErrPoolEmpty) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if p != nil {
+		c.Header("X-Gateway-Assigned-Proxy-Id", p.ID)
 	}
 	c.JSON(http.StatusOK, a)
 }
@@ -250,7 +257,8 @@ func (h *ResourceHandler) ListAccounts(c *gin.Context) {
 
 func (h *ResourceHandler) DeleteAccount(c *gin.Context) {
 	uid := middleware.CurrentUserID(c)
-	if err := h.repo.DeleteAccount(c.Request.Context(), uid, c.Param("id")); err != nil {
+	// 删除账号时同步释放其专属静态 IP 回资源池，避免库存泄漏。
+	if err := h.repo.DeleteAccountWithIPRelease(c.Request.Context(), uid, c.Param("id")); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
 			return
@@ -258,7 +266,7 @@ func (h *ResourceHandler) DeleteAccount(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "ip_released": true})
 }
 
 func (h *ResourceHandler) TestAccount(c *gin.Context) {

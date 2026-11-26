@@ -58,7 +58,13 @@ func main() {
 	transportMgr := proxy.NewManager(guard, cfg.UpstreamTimeout)
 	defer transportMgr.CloseAll()
 
-	for _, f := range []string{"migrations/0001_init.sql", "migrations/0002_audit_chain.sql", "migrations/0003_auto_ip.sql", "migrations/0004_ip_pool.sql"} {
+	for _, f := range []string{
+		"migrations/0001_init.sql",
+		"migrations/0002_audit_chain.sql",
+		"migrations/0003_auto_ip.sql",
+		"migrations/0004_ip_pool.sql",
+		"migrations/0005_account_ip.sql",
+	} {
 		migration, err := os.ReadFile(f)
 		if err != nil {
 			log.Fatalf("读取迁移文件失败 %s: %v", f, err)
@@ -141,6 +147,10 @@ func main() {
 		admin.PATCH("/ip-pool/:id", adminH.SetIPPoolStatus)
 		admin.DELETE("/ip-pool/:id", adminH.DeleteIPPool)
 		admin.POST("/users/:id/assign-from-pool", adminH.AssignFromPool)
+		// 账号维度 IP 管理（一个上游账号一个 IP）
+		admin.GET("/accounts", adminH.AdminAccounts)
+		admin.POST("/accounts/:id/assign-ip", adminH.AssignAccountIP)
+		admin.DELETE("/accounts/:id/ip", adminH.RevokeAccountIP)
 	}
 
 	// Phase 3-4: 隔离透传网关 + 限流熔断 + OpenAI 兼容

@@ -24,5 +24,5 @@ SET source = 'auto'
 FROM ranked r
 WHERE p.id = r.id AND r.rn = 1;
 
--- DB 层兜底：一个用户最多一条自动分配的静态 IP。
-CREATE UNIQUE INDEX IF NOT EXISTS uq_auto_proxy_user ON proxy_endpoints(user_id) WHERE source = 'auto';
+-- 「一用户一 IP」约束已在 Phase 8（0005_account_ip.sql）改为「一账号一 IP」。
+-- 此处不再创建 uq_auto_proxy_user，避免每次启动 create→drop 抖动；旧库由 0005 DROP 清理。

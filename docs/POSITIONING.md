@@ -4,7 +4,7 @@
 
 ## 一句话定位
 
-**IsoGate 是一个隔离式 AI API 网关：用户自带上游凭证，平台在付款后自动分配专属静态出口 IP，逐笔记录上游真实模型与 request-id，提供官方转发审计日志。**
+**IsoGate 是一个隔离式 AI API 网关：用户自带上游凭证，平台从静态 IP 资源池为每个上游账号分配一条独立专属出口 IP（一账号一 IP），逐笔记录上游真实模型与 request-id，提供官方转发审计日志。**
 
 ## 目标用户
 
@@ -18,22 +18,22 @@
 | 痛点 | IsoGate 的做法 |
 |---|---|
 | 中转服务模型不透明、模型被悄悄替换 | 审计日志同时记录 `requested_model` 与 `actual_model`，并保留上游 `request-id`；审计哈希链可公开校验 |
-| 共享 IP 导致账号环境互相污染 | 一个用户一个系统分配的静态出口 IP，账号强制绑定该 IP |
+| 共享 IP 导致账号环境互相污染 | 每个上游账号独占一条系统分配的静态出口 IP（一账号一 IP），账号强制绑定、绝不共用 |
 | 代理挂掉后回退服务器 IP，触发风控 | Fail-Closed：代理不健康直接拒绝请求，绝不裸连 |
 | 凭证泄露风险 | 上游凭证与代理密码 AES-256-GCM 加密落库；API Key 只存 SHA-256 |
 | 用量说不清 | 逐笔记录 input / output / cache / TTFT，并提供租户与管理员两套视图 |
 
 ## 产品关键词
 
-`BYO-Account`、`AUTO-IP`、`Zero-Adulteration`、`Fail-Closed`、`Tenant Isolation`、`Audit Hash Chain`、`SSE Passthrough`。
+`BYO-Account`、`AUTO-IP`、`Per-Account Static IP`、`Official Relay Audit Log`、`Fail-Closed`、`Tenant Isolation`、`Audit Hash Chain`、`SSE Passthrough`。
 
 ## GitHub README 首屏文案（建议）
 
 ```text
 IsoGate — 带官方转发审计日志的隔离式 AI API 网关
 
-用户自带上游凭证；付款后系统自动分配专属静态出口 IP（一用户一 IP）。
-所有请求强制从该 IP 出站，代理异常时直接拒绝，不回退服务器 IP。
+用户自带上游凭证；每个上游账号独占一条由系统从静态 IP 资源池分配的出口 IP（一账号一 IP）。
+同一用户的多个账号也各自独立，所有请求强制从各自的 IP 出站；代理异常时直接拒绝，不回退服务器 IP。
 逐笔记录 requested_model / actual_model / 上游 request-id / 出口 IP / token usage，
 审计哈希链公开可校验。
 
@@ -46,7 +46,7 @@ IsoGate — 带官方转发审计日志的隔离式 AI API 网关
 ### 版本 A（技术向）
 
 > 做了一个小网关，想解决「API 中转不透明」这件事。  
-> 用户自带上游账号，平台在付款后自动分配一个专属静态出口 IP；请求只从这个 IP 走，代理挂了就拒绝，不回退服务器 IP。  
+> 用户自带上游账号，平台从静态 IP 资源池给每个账号分配一条独立专属出口 IP（一账号一 IP）；请求只从各自的 IP 走，代理挂了就拒绝，不回退服务器 IP。  
 > 每一笔请求都记 requested_model / actual_model / 上游 request-id，审计链公开可校验。  
 > Go + PostgreSQL + Redis，代码已开源仓库初始化。
 
@@ -54,14 +54,14 @@ IsoGate — 带官方转发审计日志的隔离式 AI API 网关
 
 > 为什么你买的 API 有时「不像原模型」？  
 > IsoGate 的思路很简单：不混池、不换模型、不裸连。  
-> 用户自带账号，系统分配专属静态 IP；每次请求都能拿到上游真实模型名和 request-id 自证。  
-> 一用户一 IP，Fail-Closed，官方转发审计日志可核验。
+> 用户自带账号，系统为每个账号分配独立专属静态 IP；每次请求都能拿到上游真实模型名和 request-id 自证。  
+> 一账号一 IP，Fail-Closed，官方转发审计日志可核验。
 
 ## 公众号 / 长文提纲
 
 1. 标题候选：
    - 《我们为什么做了一个「可审计」的 AI API 网关》
-   - 《一用户一 IP：隔离式 AI 网关的设计与实现》
+   - 《一账号一 IP：隔离式 AI 网关的设计与实现》
 2. 开篇：中转服务的三类不透明——模型、出口、用量。
 3. 设计原则：BYO-Account、自动静态 IP、Fail-Closed、零 IDOR。
 4. 技术实现：Dial 阶段 SSRF 防护、独立 Transport 池、SSE TeeReader、Redis Lua 原子限流、审计哈希链。

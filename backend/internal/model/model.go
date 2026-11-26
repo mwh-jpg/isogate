@@ -18,6 +18,7 @@ type User struct {
 type ProxyEndpoint struct {
 	ID                string     `json:"id"`
 	UserID            string     `json:"user_id"`
+	UpstreamAccountID *string    `json:"upstream_account_id"`
 	Name              string     `json:"name"`
 	Scheme            string     `json:"scheme"`
 	Host              string     `json:"host"`
@@ -140,6 +141,7 @@ type IPPoolItem struct {
 	PasswordEnc       *string    `json:"-"`
 	Status            string     `json:"status"`
 	AssignedUserID    *string    `json:"assigned_user_id"`
+	AssignedAccountID *string    `json:"assigned_account_id"`
 	LastEgressIP      *string    `json:"last_egress_ip"`
 	LastEgressCountry *string    `json:"last_egress_country"`
 	LastLatencyMS     *int       `json:"last_latency_ms"`

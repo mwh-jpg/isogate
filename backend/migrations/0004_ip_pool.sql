@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS ip_pool (
 
 -- 同一端点不重复入库；批量添加时用 ON CONFLICT DO NOTHING 去重。
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ip_pool_endpoint ON ip_pool(scheme, host, port);
--- 一个用户最多占用池中一条 IP（与「一用户一静态 IP」一致）。
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ip_pool_assigned_user ON ip_pool(assigned_user_id) WHERE status = 'assigned';
+-- 「一个用户最多占用池中一条 IP」约束已在 Phase 8（0005_account_ip.sql）改为按账号维度。
+-- 此处不再创建 uq_ip_pool_assigned_user，避免每次启动 create→drop 抖动；旧库由 0005 DROP 清理。
 -- 自动分配时按 available + healthy 快速取用。
 CREATE INDEX IF NOT EXISTS idx_ip_pool_pick ON ip_pool(status, health_status, created_at);

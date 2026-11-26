@@ -126,13 +126,13 @@ func (r *Repo) GetProxyByID(ctx context.Context, proxyID string) (*model.ProxyEn
 var ErrPoolEmpty = errors.New("IP 池中没有可用的健康静态 IP（请先在池中探测出 healthy 的可用 IP）")
 
 const ipPoolCols = `id, COALESCE(name,''), scheme, host, port, username_enc, password_enc,
-	status, assigned_user_id, last_egress_ip, last_egress_country, last_latency_ms,
+	status, assigned_user_id, assigned_account_id, last_egress_ip, last_egress_country, last_latency_ms,
 	health_status, last_checked_at, last_error, COALESCE(note,''), created_at, updated_at`
 
 func scanIPPool(row pgx.Row) (*model.IPPoolItem, error) {
 	p := &model.IPPoolItem{}
 	err := row.Scan(&p.ID, &p.Name, &p.Scheme, &p.Host, &p.Port,
-		&p.UsernameEnc, &p.PasswordEnc, &p.Status, &p.AssignedUserID,
+		&p.UsernameEnc, &p.PasswordEnc, &p.Status, &p.AssignedUserID, &p.AssignedAccountID,
 		&p.LastEgressIP, &p.LastEgressCountry, &p.LastLatencyMS,
 		&p.HealthStatus, &p.LastCheckedAt, &p.LastError, &p.Note,
 		&p.CreatedAt, &p.UpdatedAt)
@@ -221,11 +221,26 @@ func (r *Repo) DeleteIPPool(ctx context.Context, id string) error {
 	return nil
 }
 
-// ReleaseIPPoolByUser 回收用户 IP 时把池中对应条目释放回 available，避免库存泄漏。
+// ReleaseIPPoolByUser 全量回收某用户占用的池条目（含账号专属），仅在「用户级整体回收」
+// 场景使用：调用方必须同时删除该用户全部 source='auto' 出口，否则会出现「池条目已释放、
+// 出口仍存在」的不一致，导致同一条静态 IP 被分配给第二个账号。
 func (r *Repo) ReleaseIPPoolByUser(ctx context.Context, userID string) (int64, error) {
 	tag, err := r.pool.Exec(ctx, `
-		UPDATE ip_pool SET status='available', assigned_user_id=NULL, updated_at=now()
+		UPDATE ip_pool SET status='available', assigned_user_id=NULL, assigned_account_id=NULL, updated_at=now()
 		WHERE assigned_user_id=$1 AND status='assigned'`, userID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// ReleasePlaceholderIPPoolByUser 只释放「占位」占用（assigned_account_id IS NULL），
+// 账号专属池条目绝不动。供 ProvisionIP / AssignFromPool 等兼容入口使用，保证
+// 一个上游账号一条独立 IP 的绑定不被管理员补占位 IP 时破坏。
+func (r *Repo) ReleasePlaceholderIPPoolByUser(ctx context.Context, userID string) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE ip_pool SET status='available', assigned_user_id=NULL, assigned_account_id=NULL, updated_at=now()
+		WHERE assigned_user_id=$1 AND status='assigned' AND assigned_account_id IS NULL`, userID)
 	if err != nil {
 		return 0, err
 	}
@@ -238,12 +253,11 @@ func (r *Repo) AssignFromPool(ctx context.Context, userID string) (*model.IPPool
 	var item *model.IPPoolItem
 	var proxy *model.ProxyEndpoint
 	err := r.WithTx(ctx, func(tx pgx.Tx) error {
-		// 二次分配（更换 IP）时先释放该用户旧的池占用：
-		// 否则 uq_ip_pool_assigned_user 会因同一 user_id 出现两条 assigned 而报 23505，
-		// 且旧 IP 会永久滞留在 assigned 状态造成库存泄漏。
+		// 旧「占位」占用（assigned_account_id IS NULL）先释放；账号专属占用绝不动，
+		// 否则给用户补占位 IP 会把其所有账号的专属池条目一起释放掉。
 		if _, err := tx.Exec(ctx, `
-			UPDATE ip_pool SET status='available', assigned_user_id=NULL, updated_at=now()
-			WHERE assigned_user_id=$1 AND status='assigned'`, userID); err != nil {
+			UPDATE ip_pool SET status='available', assigned_user_id=NULL, assigned_account_id=NULL, updated_at=now()
+			WHERE assigned_user_id=$1 AND status='assigned' AND assigned_account_id IS NULL`, userID); err != nil {
 			return err
 		}
 		var poolID string
@@ -265,7 +279,7 @@ func (r *Repo) AssignFromPool(ctx context.Context, userID string) (*model.IPPool
 			p.ID, userID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM proxy_endpoints WHERE user_id=$1 AND source='auto'`, userID); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM proxy_endpoints WHERE user_id=$1 AND source='auto' AND upstream_account_id IS NULL`, userID); err != nil {
 			return err
 		}
 		prow := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -282,7 +296,7 @@ func (r *Repo) AssignFromPool(ctx context.Context, userID string) (*model.IPPool
 		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE upstream_accounts SET proxy_id=$2, updated_at=now()
-			WHERE user_id=$1 AND require_proxy=true AND (proxy_id IS NULL OR proxy_id <> $2)`,
+			WHERE user_id=$1 AND require_proxy=true AND proxy_id IS NULL`,
 			userID, np.ID); err != nil {
 			return err
 		}
@@ -296,6 +310,223 @@ func (r *Repo) AssignFromPool(ctx context.Context, userID string) (*model.IPPool
 		return nil
 	})
 	return item, proxy, err
+}
+
+// ---------- 账号级静态 IP（一个上游账号一个 IP）----------
+
+// CreateAccountWithProxyFromPool 事务内创建上游账号，并从池中取一条独立静态 IP 专属于它。
+// 账号创建与 IP 分配原子完成：池空则整体回滚，绝不产生「无 IP 的账号」。
+func (r *Repo) CreateAccountWithProxyFromPool(ctx context.Context, userID, provider, name, baseURL, credEnc string, maxConc int) (*model.UpstreamAccount, *model.ProxyEndpoint, error) {
+	var acc *model.UpstreamAccount
+	var out *model.ProxyEndpoint
+	err := r.WithTx(ctx, func(tx pgx.Tx) error {
+		var poolID string
+		if err := tx.QueryRow(ctx, `
+			SELECT id FROM ip_pool
+			WHERE status='available' AND health_status='healthy'
+			ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&poolID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrPoolEmpty
+			}
+			return err
+		}
+		pool, err := scanIPPool(tx.QueryRow(ctx, `SELECT `+ipPoolCols+` FROM ip_pool WHERE id=$1`, poolID))
+		if err != nil {
+			return err
+		}
+		// 先建账号，proxy_id 暂为 NULL（复合外键不检查 NULL）
+		a, err := scanAccount(tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO upstream_accounts
+			    (user_id,proxy_id,provider,name,base_url,credential_enc,require_proxy,max_concurrency)
+			VALUES ($1,NULL,$2,$3,$4,$5,true,$6) RETURNING %s`, accountCols),
+			userID, provider, name, baseURL, credEnc, maxConc))
+		if err != nil {
+			return err
+		}
+		// 池条目绑定到该账号
+		if _, err := tx.Exec(ctx, `
+			UPDATE ip_pool SET status='assigned', assigned_user_id=$2, assigned_account_id=$3, updated_at=now()
+			WHERE id=$1`, pool.ID, userID, a.ID); err != nil {
+			return err
+		}
+		// 建专属出口，携带池里已探测的健康信息（Fail-Closed 立即可用）
+		np, err := scanProxy(tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO proxy_endpoints
+			    (user_id,upstream_account_id,name,scheme,host,port,username_enc,password_enc,source,
+			     last_egress_ip,last_egress_country,last_latency_ms,health_status,last_checked_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'auto',$9,$10,$11,$12,now())
+			RETURNING %s`, proxyCols),
+			userID, a.ID, pool.Name, pool.Scheme, pool.Host, pool.Port, pool.UsernameEnc, pool.PasswordEnc,
+			pool.LastEgressIP, pool.LastEgressCountry, pool.LastLatencyMS, pool.HealthStatus))
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE upstream_accounts SET proxy_id=$2, updated_at=now() WHERE id=$1`, a.ID, np.ID); err != nil {
+			return err
+		}
+		a.ProxyID = &np.ID
+		acc, out = a, np
+		return nil
+	})
+	return acc, out, err
+}
+
+// AssignIPFromPoolForAccount 为已存在的账号分配/更换专属静态 IP（管理端）。
+// 先释放该账号旧的池占用并删除旧出口，再从池取新的一条，全程事务。
+func (r *Repo) AssignIPFromPoolForAccount(ctx context.Context, userID, accountID string) (*model.IPPoolItem, *model.ProxyEndpoint, error) {
+	var item *model.IPPoolItem
+	var out *model.ProxyEndpoint
+	err := r.WithTx(ctx, func(tx pgx.Tx) error {
+		// 账号必须属于该用户（零 IDOR）
+		var owner string
+		if err := tx.QueryRow(ctx, `SELECT user_id FROM upstream_accounts WHERE id=$1 FOR UPDATE`, accountID).Scan(&owner); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if owner != userID {
+			return ErrNotFound
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE ip_pool SET status='available', assigned_user_id=NULL, assigned_account_id=NULL, updated_at=now()
+			WHERE assigned_account_id=$1 AND status='assigned'`, accountID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM proxy_endpoints WHERE upstream_account_id=$1 AND user_id=$2 AND source='auto'`, accountID, userID); err != nil {
+			return err
+		}
+		var poolID string
+		if err := tx.QueryRow(ctx, `
+			SELECT id FROM ip_pool
+			WHERE status='available' AND health_status='healthy'
+			ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&poolID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrPoolEmpty
+			}
+			return err
+		}
+		pool, err := scanIPPool(tx.QueryRow(ctx, `SELECT `+ipPoolCols+` FROM ip_pool WHERE id=$1`, poolID))
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE ip_pool SET status='assigned', assigned_user_id=$2, assigned_account_id=$3, updated_at=now()
+			WHERE id=$1`, pool.ID, userID, accountID); err != nil {
+			return err
+		}
+		np, err := scanProxy(tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO proxy_endpoints
+			    (user_id,upstream_account_id,name,scheme,host,port,username_enc,password_enc,source,
+			     last_egress_ip,last_egress_country,last_latency_ms,health_status,last_checked_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'auto',$9,$10,$11,$12,now())
+			RETURNING %s`, proxyCols),
+			userID, accountID, pool.Name, pool.Scheme, pool.Host, pool.Port, pool.UsernameEnc, pool.PasswordEnc,
+			pool.LastEgressIP, pool.LastEgressCountry, pool.LastLatencyMS, pool.HealthStatus))
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE upstream_accounts SET proxy_id=$2, updated_at=now() WHERE id=$1`, accountID, np.ID); err != nil {
+			return err
+		}
+		item, out = pool, np
+		return nil
+	})
+	return item, out, err
+}
+
+// ReleaseIPPoolByAccount 账号被删除/回收时，把它占用的池条目释放回 available。
+func (r *Repo) ReleaseIPPoolByAccount(ctx context.Context, accountID string) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE ip_pool SET status='available', assigned_user_id=NULL, assigned_account_id=NULL, updated_at=now()
+		WHERE assigned_account_id=$1 AND status='assigned'`, accountID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// DeleteAccountWithIPRelease 删除账号并同时释放其专属 IP 回池，避免库存泄漏。
+func (r *Repo) DeleteAccountWithIPRelease(ctx context.Context, userID, accountID string) error {
+	return r.WithTx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			UPDATE ip_pool SET status='available', assigned_user_id=NULL, assigned_account_id=NULL, updated_at=now()
+			WHERE assigned_account_id=$1 AND status='assigned'`, accountID); err != nil {
+			return err
+		}
+		// 删专属出口时外键会把账号 proxy_id 置 NULL
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM proxy_endpoints WHERE upstream_account_id=$1 AND user_id=$2 AND source='auto'`, accountID, userID); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM upstream_accounts WHERE id=$1 AND user_id=$2`, accountID, userID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
+// GetProxyByAccountID 按账号查其专属出口（对外只读，仍带 user_id 过滤）。
+func (r *Repo) GetProxyByAccountID(ctx context.Context, userID, accountID string) (*model.ProxyEndpoint, error) {
+	return scanProxy(r.pool.QueryRow(ctx, `
+		SELECT `+proxyCols+` FROM proxy_endpoints
+		WHERE user_id=$1 AND upstream_account_id=$2 AND source='auto'
+		ORDER BY created_at DESC LIMIT 1`, userID, accountID))
+}
+
+// ListAllAccounts 管理端列出全部账号（含 proxy_id，用于账号与 IP 绑定看板）。
+func (r *Repo) ListAllAccounts(ctx context.Context) ([]*model.UpstreamAccount, error) {
+	rows, err := r.pool.Query(ctx, `SELECT `+accountCols+` FROM upstream_accounts ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*model.UpstreamAccount
+	for rows.Next() {
+		a, err := scanAccount(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// GetAccountByID 仅供管理端按 ID 查询（不带 user_id）。
+func (r *Repo) GetAccountByID(ctx context.Context, accountID string) (*model.UpstreamAccount, error) {
+	return scanAccount(r.pool.QueryRow(ctx, `SELECT `+accountCols+` FROM upstream_accounts WHERE id=$1`, accountID))
+}
+
+// RevokeAccountIP 回收某账号的专属出口并释放其池条目。
+// 兼容 legacy：出口的 upstream_account_id 为 NULL 时按 account.proxy_id 一并删除。
+func (r *Repo) RevokeAccountIP(ctx context.Context, userID, accountID string) (int64, int64, error) {
+	var proxies, released int64
+	err := r.WithTx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			DELETE FROM proxy_endpoints p
+			WHERE p.user_id=$2 AND p.source='auto'
+			  AND (p.upstream_account_id=$1
+			       OR p.id = (SELECT proxy_id FROM upstream_accounts WHERE id=$1 AND user_id=$2))`,
+			accountID, userID)
+		if err != nil {
+			return err
+		}
+		proxies = tag.RowsAffected()
+		tag2, err := tx.Exec(ctx, `
+			UPDATE ip_pool SET status='available', assigned_user_id=NULL, assigned_account_id=NULL, updated_at=now()
+			WHERE assigned_account_id=$1 AND status='assigned'`, accountID)
+		if err != nil {
+			return err
+		}
+		released = tag2.RowsAffected()
+		return nil
+	})
+	return proxies, released, err
 }
 
 func (r *Repo) ListUsers(ctx context.Context) ([]*model.User, error) {
@@ -319,7 +550,7 @@ func (r *Repo) ListUsers(ctx context.Context) ([]*model.User, error) {
 
 func scanProxy(row pgx.Row) (*model.ProxyEndpoint, error) {
 	p := &model.ProxyEndpoint{}
-	err := row.Scan(&p.ID, &p.UserID, &p.Name, &p.Scheme, &p.Host, &p.Port,
+	err := row.Scan(&p.ID, &p.UserID, &p.UpstreamAccountID, &p.Name, &p.Scheme, &p.Host, &p.Port,
 		&p.UsernameEnc, &p.PasswordEnc, &p.LastEgressIP, &p.LastEgressCountry,
 		&p.LastLatencyMS, &p.HealthStatus, &p.Source, &p.LastCheckedAt, &p.LastError,
 		&p.CreatedAt, &p.UpdatedAt)
@@ -329,7 +560,7 @@ func scanProxy(row pgx.Row) (*model.ProxyEndpoint, error) {
 	return p, err
 }
 
-const proxyCols = `id, user_id, name, scheme, host, port, username_enc, password_enc,
+const proxyCols = `id, user_id, upstream_account_id, name, scheme, host, port, username_enc, password_enc,
 	last_egress_ip, last_egress_country, last_latency_ms, health_status, source,
 	last_checked_at, last_error, created_at, updated_at`
 
@@ -345,7 +576,9 @@ func (r *Repo) CreateProxy(ctx context.Context, userID, name, scheme, host strin
 func (r *Repo) UpsertAutoProxy(ctx context.Context, userID, name, scheme, host string, port int, userEnc, passEnc *string) (*model.ProxyEndpoint, error) {
 	var out *model.ProxyEndpoint
 	err := r.WithTx(ctx, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `DELETE FROM proxy_endpoints WHERE user_id=$1 AND source='auto'`, userID); err != nil {
+		// 只删除「占位」auto 出口（upstream_account_id IS NULL），绝不删除账号专属 IP，
+		// 否则管理员给用户补一条占位 IP 会把该用户所有账号的专属出口一起抹掉。
+		if _, err := tx.Exec(ctx, `DELETE FROM proxy_endpoints WHERE user_id=$1 AND source='auto' AND upstream_account_id IS NULL`, userID); err != nil {
 			return err
 		}
 		row := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -356,11 +589,11 @@ func (r *Repo) UpsertAutoProxy(ctx context.Context, userID, name, scheme, host s
 		if err != nil {
 			return err
 		}
-		// 分配/替换 IP 后把该用户所有强制代理的账号重新指向新 IP。
-		// 回收 IP 时外键会把 proxy_id 置 NULL，若不重绑，重新分配后账号仍会 Fail-Closed。
+		// 兼容入口：只给「尚无出口」的账号补绑这条占位 IP。
+		// 已有专属出口的账号绝不能被覆盖，否则会退回多账号共用一个 IP。
 		if _, err := tx.Exec(ctx, `
 			UPDATE upstream_accounts SET proxy_id=$2, updated_at=now()
-			WHERE user_id=$1 AND require_proxy=true AND (proxy_id IS NULL OR proxy_id <> $2)`,
+			WHERE user_id=$1 AND require_proxy=true AND proxy_id IS NULL`,
 			userID, p.ID); err != nil {
 			return err
 		}

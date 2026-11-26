@@ -132,8 +132,10 @@ type provisionReq struct {
 	PlanDays int    `json:"plan_days"`
 }
 
-// ProvisionIP 为单个用户创建/替换自动分配的静态 IP，并立即探测。
-// 当前为管理员手动占位入口；接入用户提供的静态 IP 获取接口后，由付款回调调用同样逻辑。
+// ProvisionIP 为单个用户创建/替换「占位」静态 IP，并立即探测。
+// Phase 8「一账号一 IP」后正式业务由 CreateAccountWithProxyFromPool / AssignAccountIP 承担；
+// 本入口仅为兼容保留：UpsertAutoProxy 只替换占位出口，ReleasePlaceholderIPPoolByUser
+// 只释放占位池占用，绝不触碰任何账号专属 IP。
 func (h *AdminHandler) ProvisionIP(c *gin.Context) {
 	userID := c.Param("id")
 	if _, err := h.repo.GetUserByID(c.Request.Context(), userID); err != nil {
@@ -183,9 +185,9 @@ func (h *AdminHandler) ProvisionIP(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	// 手动指定 IP 时，若该用户此前占用过 ip_pool 条目，一并释放回库存。
-	if _, err := h.repo.ReleaseIPPoolByUser(c.Request.Context(), userID); err != nil {
-		log.Printf("release ip_pool for user failed: user_id=%s err=%v", userID, err)
+	// 只释放「占位」池占用；账号专属池条目必须保留，否则会把该 IP 放回库存被别的账号复用。
+	if _, err := h.repo.ReleasePlaceholderIPPoolByUser(c.Request.Context(), userID); err != nil {
+		log.Printf("release placeholder ip_pool for user failed: user_id=%s err=%v", userID, err)
 	}
 	days := req.PlanDays
 	if days <= 0 {
@@ -197,7 +199,9 @@ func (h *AdminHandler) ProvisionIP(c *gin.Context) {
 		return
 	}
 	probe := h.res.doProbe(c.Request.Context(), userID, p.ID)
-	fresh, _ := h.repo.GetAutoProxy(c.Request.Context(), userID)
+	// 按 ID 精确取刚创建的占位出口；GetAutoProxy 按 created_at 取最新，在账号级模型下
+	// 可能取到别的账号的专属出口。
+	fresh, _ := h.repo.GetProxyByID(c.Request.Context(), p.ID)
 	c.JSON(http.StatusOK, gin.H{"proxy": fresh, "probe": probe})
 }
 
@@ -258,7 +262,9 @@ func (h *AdminHandler) UpdatePlan(c *gin.Context) {
 	})
 }
 
-// RevokeIP 回收用户的专属静态 IP，并同步把套餐置为 expired。
+// RevokeIP 用户级整体回收：删除该用户全部 source='auto' 出口（含账号专属），
+// 并把全部 assigned 池条目释放回库存，最后套餐置 expired。数据一致但粒度较粗，
+// 账号级精细回收请使用 RevokeAccountIP。
 // 删除后上游账号 proxy_id 由外键 ON DELETE SET NULL 置空，网关立即 Fail-Closed。
 func (h *AdminHandler) RevokeIP(c *gin.Context) {
 	userID := c.Param("id")
@@ -505,7 +511,7 @@ func (h *AdminHandler) AddIPPool(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"added": added, "submitted": len(poolItems),
-		"duplicates": len(poolItems) - added,
+		"duplicates":   len(poolItems) - added,
 		"parse_errors": parseErrors, "errors": validationErrors,
 	})
 }
@@ -636,6 +642,96 @@ func (h *AdminHandler) AssignFromPool(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"pool_item": item, "proxy": p, "plan_status": "active",
-		"message": "已从池中分配专属静态 IP，并自动重绑该用户的上游账号",
+		"message": "已从池中分配占位静态 IP，并自动补绑该用户尚无出口的账号",
+	})
+}
+
+// ---------- 账号维度 IP 管理（一个上游账号一个 IP）----------
+
+// AdminAccounts 管理端列出全部上游账号及其专属静态 IP。
+func (h *AdminHandler) AdminAccounts(c *gin.Context) {
+	accounts, err := h.repo.ListAllAccounts(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	proxies, err := h.repo.ListAllProxies(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	byAccount := map[string]*model.ProxyEndpoint{}
+	byID := map[string]*model.ProxyEndpoint{}
+	for _, p := range proxies {
+		byID[p.ID] = p
+		if p.UpstreamAccountID != nil {
+			byAccount[*p.UpstreamAccountID] = p
+		}
+	}
+	out := make([]gin.H, 0, len(accounts))
+	for _, a := range accounts {
+		row := gin.H{
+			"id": a.ID, "user_id": a.UserID, "proxy_id": a.ProxyID,
+			"provider": a.Provider, "name": a.Name, "base_url": a.BaseURL,
+			"status": a.Status, "max_concurrency": a.MaxConcurrency, "created_at": a.CreatedAt,
+		}
+		p := byAccount[a.ID]
+		if p == nil && a.ProxyID != nil {
+			p = byID[*a.ProxyID] // legacy 出口（upstream_account_id 为 NULL）兜底
+		}
+		if p != nil {
+			row["assigned_ip"] = strPtr(p.LastEgressIP)
+			row["proxy_health"] = p.HealthStatus
+			row["assigned_proxy_id"] = p.ID
+			row["exclusive"] = p.UpstreamAccountID != nil
+		}
+		out = append(out, row)
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// AssignAccountIP 从池中给指定账号分配/更换一条独立静态 IP。
+func (h *AdminHandler) AssignAccountIP(c *gin.Context) {
+	accountID := c.Param("id")
+	acc, err := h.repo.GetAccountByID(c.Request.Context(), accountID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		return
+	}
+	item, p, err := h.repo.AssignIPFromPoolForAccount(c.Request.Context(), acc.UserID, accountID)
+	if err != nil {
+		if errors.Is(err, repository.ErrPoolEmpty) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, repository.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"account_id": accountID, "user_id": acc.UserID,
+		"pool_item": item, "proxy": p,
+		"message": "已为该账号分配独立静态 IP，其他账号的出口不受影响",
+	})
+}
+
+// RevokeAccountIP 回收某账号的专属 IP：删除出口、释放池条目；账号保留但立即 Fail-Closed。
+func (h *AdminHandler) RevokeAccountIP(c *gin.Context) {
+	accountID := c.Param("id")
+	acc, err := h.repo.GetAccountByID(c.Request.Context(), accountID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		return
+	}
+	proxies, released, err := h.repo.RevokeAccountIP(c.Request.Context(), acc.UserID, accountID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"proxy_deleted": proxies, "pool_released": released, "fail_closed": true,
 	})
 }
