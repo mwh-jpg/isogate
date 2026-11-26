@@ -128,3 +128,25 @@ type UsageLog struct {
 	ErrorMessage        string    `json:"error_message"`
 	CreatedAt           time.Time `json:"created_at"`
 }
+
+// IPPoolItem 静态 IP 资源池条目（库存），与已分配的 ProxyEndpoint 区分。
+type IPPoolItem struct {
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Scheme            string     `json:"scheme"`
+	Host              string     `json:"host"`
+	Port              int        `json:"port"`
+	UsernameEnc       *string    `json:"-"`
+	PasswordEnc       *string    `json:"-"`
+	Status            string     `json:"status"`
+	AssignedUserID    *string    `json:"assigned_user_id"`
+	LastEgressIP      *string    `json:"last_egress_ip"`
+	LastEgressCountry *string    `json:"last_egress_country"`
+	LastLatencyMS     *int       `json:"last_latency_ms"`
+	HealthStatus      string     `json:"health_status"`
+	LastCheckedAt     *time.Time `json:"last_checked_at"`
+	LastError         *string    `json:"-"`
+	Note              string     `json:"note"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}

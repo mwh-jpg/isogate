@@ -13,7 +13,8 @@
 | 3 | `/v1/messages` 透传、SSE 逐块转发+Tee 解析 usage、Fail-Closed、审计响应头 | ✅ |
 | 4 | Redis 并发锁+RPM 滑窗（Lua 原子）、错误分类熔断、`/v1/chat/completions` 兼容 | ✅ |
 | 5 | 免构建控制台、多阶段 Dockerfile、compose、Nginx（SSE 优化）、真哈希链审计 | ✅ |
-| 6 | 付款后自动分配静态 IP（一用户一 IP）、用户侧只读 IP、管理员后台、强制 Fail-Closed | ✅（手动分配占位，待接入真实静态 IP API） |
+| 6 | 付款后自动分配静态 IP（一用户一 IP）、用户侧只读 IP、管理员后台、强制 Fail-Closed | ✅ |
+| 7 | 静态 IP 资源池（`ip_pool` 库存）：批量录入、SSRF 拦截、探测验健康、停用/启用、从池自动分配、回收释放库存 | ✅（待接入真实静态 IP 获取接口） |
 
 验收：每个 Phase 均通过 `go test ./...`。
 
@@ -79,8 +80,14 @@ docker compose -f deploy/docker-compose.full.yml --env-file deploy/.env up -d
 - `PATCH /api/v1/admin/users/:id/plan` — 管理套餐：`plan_status`（unpaid/active/expired/cancelled）、`plan_days`（续期天数）、`max_concurrency`、`status`（active/disabled）；套餐非 `active` 时网关立即 Fail-Closed
 - `DELETE /api/v1/admin/users/:id/ip` — 回收专属静态 IP，并把套餐同步置为 `expired`
 - `POST /api/v1/admin/proxies/:id/probe` — 重新探测某条静态 IP 的健康状态与出口 IP
+- `GET /api/v1/admin/ip-pool` — 静态 IP 资源池条目与统计（`total/available/healthy/assigned/disabled/allocatable`）
+- `POST /api/v1/admin/ip-pool` — 批量往池里加 IP：`lines` 每行一条（也支持 `items` 结构化数组），可带 `scheme`（默认协议）与 `note`；逐条校验、端点去重
+- `POST /api/v1/admin/ip-pool/:id/probe` — 经该代理探测真实出口 IP / 国家 / 延迟并落库，只有 `healthy` 才可被分配
+- `PATCH /api/v1/admin/ip-pool/:id` — 停用 / 启用（`status=disabled|available`）
+- `DELETE /api/v1/admin/ip-pool/:id` — 删除未分配条目
+- `POST /api/v1/admin/users/:id/assign-from-pool` — 从池中自动取一条 `available + healthy` 的 IP 分配给用户（付款后自动设置 IP 的落地入口，可带 `plan_days`）
 
-管理后台 UI（`role=admin` 可见）：用户与套餐表格支持「套餐」「分配/更换 IP」「回收」；静态 IP 池支持「重新探测」「回收」。
+管理后台 UI（`role=admin` 可见）：用户与套餐表格支持「套餐」「从池分配」「分配/更换 IP」「回收」；静态 IP 资源池区块支持「批量添加 IP」、逐条「探测 / 停用 / 启用 / 删除」并显示库存统计；「已分配出口」区块保留重新探测与回收。
 
 网关面（`sk-iso-...` API Key）：
 - `POST /v1/messages` · `POST /v1/messages/count_tokens` · `POST /v1/chat/completions` · `GET /v1/models`
@@ -94,7 +101,42 @@ docker compose -f deploy/docker-compose.full.yml --env-file deploy/.env up -d
 - 付款成功后，管理端或支付回调调用 `POST /api/v1/admin/users/:id/provision-ip`，网关创建 `source='auto'` 的代理记录并立即探测。
 - 数据库用部分唯一索引 `uq_auto_proxy_user` 保证每个用户最多一条自动分配静态 IP。
 - 上游账号创建时强制绑定到该静态 IP，并强制 `require_proxy=true`，用户无法关闭 Fail-Closed。
-- 当前为**手动分配占位实现**；用户提供静态 IP 获取接口后，只需把该接口接到 `AdminHandler.ProvisionIP` 或支付回调，业务逻辑无需改动。
+- `provision-ip` 目前是**手动占位入口**；正式路径是从静态 IP 资源池自动分配，见下一节。
+
+## 静态 IP 资源池（管理员如何往池里加 IP）
+
+`ip_pool` 是**库存表**，`proxy_endpoints(source='auto')` 是**已分配给用户的出口**，两者严格分开。管理端闭环如下：
+
+1. **批量录入**：管理后台「静态 IP 资源池」→「批量添加 IP」，或调用 `POST /api/v1/admin/ip-pool`。
+   `lines` 每行一条，支持三种格式（`#` 开头为注释）：
+
+   ```text
+   216.223.21.54:8022:qdqrxwzcez:iormiiumiomty   # host:port:user:pass
+   1.2.3.4:8080                                  # host:port（无认证）
+   http://user:pass@1.2.3.4:8080                 # 完整 URL，可写 socks5://
+   ```
+
+   也支持 `items` 结构化数组；`scheme` 指定文本未写协议时的默认值，`note` 为本批统一备注。
+   `(scheme, host, port)` 唯一，重复端点自动跳过；私网 / 回环 / 链路本地地址在 SSRF 校验阶段直接拒绝；
+   用户名与密码 AES-256-GCM 加密落库，绝不出现在日志与接口响应中。
+
+2. **探测验健康**：新条目是 `available / unknown`，**必须**逐条点「探测」或调用
+   `POST /api/v1/admin/ip-pool/:id/probe`。网关经该代理访问 `ipinfo.io/json`，记录真实出口 IP / 国家 / 延迟；
+   只有 `healthy` 才进入可分配队列（`stats.allocatable` 即 `available + healthy` 的条数）。
+
+3. **从池自动分配**：用户表「从池分配」或 `POST /api/v1/admin/users/:id/assign-from-pool`（可带 `plan_days`）。
+   事务内按入库顺序 `FOR UPDATE SKIP LOCKED` 取一条 `available + healthy`，标记 `assigned` 并绑定用户，
+   写入 `proxy_endpoints(source='auto')`，自动重绑该用户所有强制代理账号，套餐置 `active`。
+   这正是「用户付款后自动设置 IP」的落地入口。
+
+4. **回收释放库存**：`DELETE /api/v1/admin/users/:id/ip` 在删除出口的同时，把池中对应条目释放回
+   `available`，避免库存泄漏；已分配条目禁止停用 / 删除，必须先回收。
+   二次分配会先释放该用户旧的池占用，不会撞 `uq_ip_pool_assigned_user` 唯一索引。
+
+状态机：`available →(分配) assigned →(回收) available`，另有 `disabled` 表示人工停用（不参与自动分配）。
+
+> 当前是**自建资源池占位实现**：管理员手工批量录入静态 IP。待提供静态 IP 供应商获取接口后，
+> 把「取 IP」逻辑接到 `AdminHandler.AssignFromPool` 或支付回调即可，第 3 步之后的流程无需改动。
 
 ## 安全设计要点
 

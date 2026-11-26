@@ -121,6 +121,183 @@ func (r *Repo) GetProxyByID(ctx context.Context, proxyID string) (*model.ProxyEn
 	return scanProxy(r.pool.QueryRow(ctx, `SELECT `+proxyCols+` FROM proxy_endpoints WHERE id=$1`, proxyID))
 }
 
+// ---------- IP Pool（静态 IP 资源池，仅管理端）----------
+
+var ErrPoolEmpty = errors.New("IP 池中没有可用的健康静态 IP（请先在池中探测出 healthy 的可用 IP）")
+
+const ipPoolCols = `id, COALESCE(name,''), scheme, host, port, username_enc, password_enc,
+	status, assigned_user_id, last_egress_ip, last_egress_country, last_latency_ms,
+	health_status, last_checked_at, last_error, COALESCE(note,''), created_at, updated_at`
+
+func scanIPPool(row pgx.Row) (*model.IPPoolItem, error) {
+	p := &model.IPPoolItem{}
+	err := row.Scan(&p.ID, &p.Name, &p.Scheme, &p.Host, &p.Port,
+		&p.UsernameEnc, &p.PasswordEnc, &p.Status, &p.AssignedUserID,
+		&p.LastEgressIP, &p.LastEgressCountry, &p.LastLatencyMS,
+		&p.HealthStatus, &p.LastCheckedAt, &p.LastError, &p.Note,
+		&p.CreatedAt, &p.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return p, err
+}
+
+func (r *Repo) ListIPPool(ctx context.Context) ([]*model.IPPoolItem, error) {
+	rows, err := r.pool.Query(ctx, `SELECT `+ipPoolCols+` FROM ip_pool ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]*model.IPPoolItem, 0)
+	for rows.Next() {
+		p, err := scanIPPool(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) GetIPPool(ctx context.Context, id string) (*model.IPPoolItem, error) {
+	return scanIPPool(r.pool.QueryRow(ctx, `SELECT `+ipPoolCols+` FROM ip_pool WHERE id=$1`, id))
+}
+
+// AddIPPoolBatch 批量入库，端点重复自动跳过，返回成功插入条数。
+func (r *Repo) AddIPPoolBatch(ctx context.Context, items []*model.IPPoolItem) (int, error) {
+	added := 0
+	err := r.WithTx(ctx, func(tx pgx.Tx) error {
+		for _, it := range items {
+			tag, err := tx.Exec(ctx, `
+				INSERT INTO ip_pool (name,scheme,host,port,username_enc,password_enc,note)
+				VALUES ($1,$2,$3,$4,$5,$6,$7)
+				ON CONFLICT (scheme,host,port) DO NOTHING`,
+				it.Name, it.Scheme, it.Host, it.Port, it.UsernameEnc, it.PasswordEnc, it.Note)
+			if err != nil {
+				return err
+			}
+			added += int(tag.RowsAffected())
+		}
+		return nil
+	})
+	return added, err
+}
+
+func (r *Repo) UpdateIPPoolHealth(ctx context.Context, id, ip, country string, latency int, health, errMsg string) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE ip_pool SET last_egress_ip=$2, last_egress_country=$3, last_latency_ms=$4,
+		    health_status=$5, last_checked_at=now(), last_error=$6, updated_at=now()
+		WHERE id=$1`, id, ip, country, latency, health, nullable(errMsg))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repo) SetIPPoolStatus(ctx context.Context, id, status string, note *string) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE ip_pool SET status=$2, note=COALESCE($3, note), updated_at=now()
+		WHERE id=$1 AND status <> 'assigned'`, id, status, note)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repo) DeleteIPPool(ctx context.Context, id string) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM ip_pool WHERE id=$1 AND status <> 'assigned'`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ReleaseIPPoolByUser 回收用户 IP 时把池中对应条目释放回 available，避免库存泄漏。
+func (r *Repo) ReleaseIPPoolByUser(ctx context.Context, userID string) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE ip_pool SET status='available', assigned_user_id=NULL, updated_at=now()
+		WHERE assigned_user_id=$1 AND status='assigned'`, userID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// AssignFromPool 事务内从池中取一条 healthy+available 的 IP 分配给用户：
+// 锁定并标记 assigned -> 写入 auto proxy -> 重绑账号 -> 套餐置 active。
+func (r *Repo) AssignFromPool(ctx context.Context, userID string) (*model.IPPoolItem, *model.ProxyEndpoint, error) {
+	var item *model.IPPoolItem
+	var proxy *model.ProxyEndpoint
+	err := r.WithTx(ctx, func(tx pgx.Tx) error {
+		// 二次分配（更换 IP）时先释放该用户旧的池占用：
+		// 否则 uq_ip_pool_assigned_user 会因同一 user_id 出现两条 assigned 而报 23505，
+		// 且旧 IP 会永久滞留在 assigned 状态造成库存泄漏。
+		if _, err := tx.Exec(ctx, `
+			UPDATE ip_pool SET status='available', assigned_user_id=NULL, updated_at=now()
+			WHERE assigned_user_id=$1 AND status='assigned'`, userID); err != nil {
+			return err
+		}
+		var poolID string
+		if err := tx.QueryRow(ctx, `
+			SELECT id FROM ip_pool
+			WHERE status='available' AND health_status='healthy'
+			ORDER BY created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&poolID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrPoolEmpty
+			}
+			return err
+		}
+		p, err := scanIPPool(tx.QueryRow(ctx, `SELECT `+ipPoolCols+` FROM ip_pool WHERE id=$1`, poolID))
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE ip_pool SET status='assigned', assigned_user_id=$2, updated_at=now() WHERE id=$1`,
+			p.ID, userID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM proxy_endpoints WHERE user_id=$1 AND source='auto'`, userID); err != nil {
+			return err
+		}
+		prow := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO proxy_endpoints
+			    (user_id,name,scheme,host,port,username_enc,password_enc,source,
+			     last_egress_ip,last_egress_country,last_latency_ms,health_status,last_checked_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,'auto',$8,$9,$10,$11,now())
+			RETURNING %s`, proxyCols),
+			userID, p.Name, p.Scheme, p.Host, p.Port, p.UsernameEnc, p.PasswordEnc,
+			p.LastEgressIP, p.LastEgressCountry, p.LastLatencyMS, p.HealthStatus)
+		np, err := scanProxy(prow)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE upstream_accounts SET proxy_id=$2, updated_at=now()
+			WHERE user_id=$1 AND require_proxy=true AND (proxy_id IS NULL OR proxy_id <> $2)`,
+			userID, np.ID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE users SET plan_status='active', plan_expires_at=now()+interval '30 days', updated_at=now()
+			WHERE id=$1`, userID); err != nil {
+			return err
+		}
+		item = p
+		proxy = np
+		return nil
+	})
+	return item, proxy, err
+}
+
 func (r *Repo) ListUsers(ctx context.Context) ([]*model.User, error) {
 	rows, err := r.pool.Query(ctx, `SELECT `+userCols+` FROM users ORDER BY created_at DESC`)
 	if err != nil {

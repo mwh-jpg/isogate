@@ -20,7 +20,7 @@ const state = {
   logs: [],
   stats: { requests: 0, tokens: 0, avg_ttft_ms: 0, model_mismatch: 0 },
   chain: { ok: null, total: 0 },
-  admin: { overview: null, users: [], proxies: [], logs: [] },
+  admin: { overview: null, users: [], proxies: [], logs: [], ipPool: [], poolStats: {} },
 };
 
 const PAGE_META = {
@@ -201,7 +201,7 @@ function logout() {
   state.accounts = [];
   state.keys = [];
   state.logs = [];
-  state.admin = { overview: null, users: [], proxies: [], logs: [] };
+  state.admin = { overview: null, users: [], proxies: [], logs: [], ipPool: [], poolStats: {} };
   location.replace('login.html');
 }
 
@@ -225,17 +225,20 @@ async function loadData() {
     state.chain = await apiPublic(AUDIT_URL).catch(() => ({ ok: null }));
 
     if (isAdmin()) {
-      const [overview, users, adminProxies, adminLogs] = await Promise.all([
+      const [overview, users, adminProxies, adminLogs, pool] = await Promise.all([
         api('/admin/overview').catch(() => null),
         api('/admin/users').catch(() => []),
         api('/admin/proxies').catch(() => []),
         api('/admin/logs?limit=200').catch(() => []),
+        api('/admin/ip-pool').catch(() => ({ items: [], stats: {} })),
       ]);
       state.admin = {
         overview,
         users: Array.isArray(users) ? users : [],
         proxies: Array.isArray(adminProxies) ? adminProxies : [],
         logs: Array.isArray(adminLogs) ? adminLogs : [],
+        ipPool: Array.isArray(pool?.items) ? pool.items : [],
+        poolStats: pool?.stats || {},
       };
     }
     const active = state.keys.find((k) => k.status === 'active');
@@ -773,6 +776,7 @@ function openLogDetailModal(id, source) {
 function renderAdmin(container) {
   if (!isAdmin()) { container.innerHTML = '<div class="spotlight-card p-10 text-center text-xs text-slate-500">仅管理员可见</div>'; return; }
   const ov = state.admin.overview || {};
+  const s = state.admin.poolStats || {};
   container.innerHTML = `
     <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
       ${kpiCard('注册用户', 'users', esc(ov.users ?? state.admin.users.length), '全平台', 'indigo', '租户总数')}
@@ -793,7 +797,8 @@ function renderAdmin(container) {
           <td class="px-5 py-3.5 mono text-slate-400">${esc(u.max_concurrency || 5)}</td>
           <td class="px-5 py-3.5 text-right whitespace-nowrap">
             <button data-plan="${esc(u.id)}" data-email="${esc(u.email)}" data-plan-status="${esc(u.plan_status || 'unpaid')}" data-plan-expires="${esc(u.plan_expires_at || '')}" data-max-concurrency="${esc(u.max_concurrency || 5)}" data-user-status="${esc(u.status || 'active')}" class="px-2.5 py-1 rounded-lg bg-white/[0.05] text-slate-200 hover:bg-white/[0.1] mr-1">套餐</button>
-            <button data-assign-ip="${esc(u.id)}" data-email="${esc(u.email)}" class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 mr-1">${u.assigned_ip ? '更换 IP' : '分配 IP'}</button>
+            <button data-assign-pool="${esc(u.id)}" data-email="${esc(u.email)}" title="从 IP 池自动取一条 available+healthy 的 IP" class="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 mr-1">从池分配</button>
+            <button data-assign-ip="${esc(u.id)}" data-email="${esc(u.email)}" title="手动指定一个静态 IP（占位入口）" class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 mr-1">${u.assigned_ip ? '更换 IP' : '分配 IP'}</button>
             <button data-revoke-ip="${esc(u.id)}" data-email="${esc(u.email)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20" ${u.assigned_ip ? '' : 'disabled'}>回收</button>
           </td>
         </tr>`).join('') || '<tr><td colspan="7" class="px-5 py-10 text-center text-slate-500">暂无用户</td></tr>'}
@@ -801,7 +806,36 @@ function renderAdmin(container) {
     </section>
 
     <section class="spotlight-card rounded-2xl overflow-hidden">
-      <div class="px-5 py-4 border-b border-white/[0.06]"><h2 class="text-sm font-semibold text-white">静态 IP 池</h2><p class="text-xs text-slate-400 mt-0.5">每个用户最多一条系统分配的静态出口；支持重新探测与回收</p></div>
+      <div class="px-5 py-4 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-3">
+        <div><h2 class="text-sm font-semibold text-white">静态 IP 资源池（库存）</h2><p class="text-xs text-slate-400 mt-0.5">批量录入 → 探测验健康 → 从池自动分配；仅 <span class="mono">available + healthy</span> 的条目可被分配</p></div>
+        <button id="pool-add-btn" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white hover:bg-indigo-400"><i data-lucide="plus" class="w-3.5 h-3.5"></i>批量添加 IP</button>
+      </div>
+      <div class="px-5 py-3 flex flex-wrap gap-2 border-b border-white/[0.06]">
+        ${poolStatChip('库存总数', s.total ?? state.admin.ipPool.length, 'indigo')}
+        ${poolStatChip('可分配', s.allocatable ?? 0, 'emerald')}
+        ${poolStatChip('可用', s.available ?? 0, 'cyan')}
+        ${poolStatChip('健康', s.healthy ?? 0, 'emerald')}
+        ${poolStatChip('已分配', s.assigned ?? 0, 'amber')}
+        ${poolStatChip('已停用', s.disabled ?? 0, 'slate')}
+      </div>
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-4 py-3">端点</th><th class="px-4 py-3">状态</th><th class="px-4 py-3">出口 IP / 地区 / 延迟</th><th class="px-4 py-3">健康</th><th class="px-4 py-3">绑定用户</th><th class="px-4 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
+        ${state.admin.ipPool.map((p) => `<tr>
+          <td class="px-4 py-3.5"><div class="text-slate-100 font-medium">${esc(p.name || '未命名 IP')}</div><div class="mono text-[11px] text-cyan-300/80 mt-0.5">${esc(p.scheme)}://${esc(p.host)}:${esc(p.port)}</div></td>
+          <td class="px-4 py-3.5">${poolStatusBadge(p.status)}</td>
+          <td class="px-4 py-3.5"><div class="mono text-cyan-300">${esc(p.last_egress_ip || '待探测')}</div><div class="text-[11px] text-slate-500 mt-0.5">${esc(p.last_egress_country || '-')}${p.last_latency_ms ? ' · ' + esc(p.last_latency_ms) + 'ms' : ''}</div></td>
+          <td class="px-4 py-3.5">${healthBadge(p.health_status)}</td>
+          <td class="px-4 py-3.5 mono text-slate-400">${esc(p.assigned_user_id || '-')}</td>
+          <td class="px-4 py-3.5 text-right whitespace-nowrap">
+            <button data-pool-probe="${esc(p.id)}" class="px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 mr-1">探测</button>
+            ${p.status === 'assigned' ? '<span class="text-[11px] text-slate-600">使用中 · 需先回收</span>' : `<button data-pool-toggle="${esc(p.id)}" data-pool-status="${esc(p.status)}" class="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 mr-1">${p.status === 'disabled' ? '启用' : '停用'}</button><button data-pool-delete="${esc(p.id)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20">删除</button>`}
+          </td>
+        </tr>`).join('') || '<tr><td colspan="6" class="px-5 py-10 text-center text-slate-500">IP 池为空，点右上角「批量添加 IP」开始录入</td></tr>'}
+      </tbody></table></div>
+      <div class="px-5 py-3 border-t border-white/[0.06] text-[11px] text-slate-500">录入后需逐条「探测」变为 <span class="mono text-emerald-400">healthy</span> 才会进入可分配队列；已分配条目需先在用户表「回收」释放回库存。</div>
+    </section>
+
+    <section class="spotlight-card rounded-2xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-white/[0.06]"><h2 class="text-sm font-semibold text-white">已分配出口（proxy_endpoints）</h2><p class="text-xs text-slate-400 mt-0.5">从池分配或手动指定后写入的用户专属出口；支持重新探测与回收</p></div>
       <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-5 py-3">用户</th><th class="px-5 py-3">名称</th><th class="px-5 py-3">出口 IP</th><th class="px-5 py-3">地区</th><th class="px-5 py-3">延迟</th><th class="px-5 py-3">健康</th><th class="px-5 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
         ${state.admin.proxies.map((p) => `<tr><td class="px-5 py-3.5 mono text-slate-400">${esc(p.user_id || '-')}</td><td class="px-5 py-3.5 text-slate-100">${esc(p.name || '-')}</td><td class="px-5 py-3.5 mono text-cyan-300">${esc(p.last_egress_ip || '-')}</td><td class="px-5 py-3.5 text-slate-300">${esc(p.last_egress_country || '-')}</td><td class="px-5 py-3.5 mono text-slate-300">${p.last_latency_ms ? esc(p.last_latency_ms) + 'ms' : '-'}</td><td class="px-5 py-3.5">${healthBadge(p.health_status)}</td><td class="px-5 py-3.5 text-right whitespace-nowrap"><button data-reprobe="${esc(p.id)}" class="px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 mr-1">重新探测</button><button data-revoke-proxy="${esc(p.id)}" data-uid="${esc(p.user_id)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20">回收</button></td></tr>`).join('') || '<tr><td colspan="7" class="px-5 py-10 text-center text-slate-500">暂无已分配 IP</td></tr>'}
       </tbody></table></div>
@@ -815,6 +849,41 @@ function renderAdmin(container) {
     <section><h2 class="text-sm font-semibold text-white mb-3">全局审计日志</h2>${logTableHtml(filteredLogs(state.admin.logs), 'admin')}</section>
   `;
   $('admin-refresh-btn').onclick = loadAndRender;
+  $('pool-add-btn').onclick = openAddIPPoolModal;
+  container.querySelectorAll('[data-assign-pool]').forEach((btn) => {
+    btn.onclick = () => openAssignFromPoolModal(btn.dataset.assignPool, btn.dataset.email);
+  });
+  container.querySelectorAll('[data-pool-probe]').forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      showToast('正在经代理探测出口 IP…', 'info');
+      try {
+        const r = await api('/admin/ip-pool/' + encodeURIComponent(btn.dataset.poolProbe) + '/probe', { method: 'POST', body: '{}' });
+        showToast(`探测完成：${r.probe?.health_status || ''} ${r.probe?.egress_ip || ''}`, r.probe?.health_status === 'healthy' ? 'success' : 'warning');
+        await loadData(); render();
+      } catch (e) { showToast(e.message, 'error'); btn.disabled = false; }
+    };
+  });
+  container.querySelectorAll('[data-pool-toggle]').forEach((btn) => {
+    btn.onclick = async () => {
+      const next = btn.dataset.poolStatus === 'disabled' ? 'available' : 'disabled';
+      try {
+        await api('/admin/ip-pool/' + encodeURIComponent(btn.dataset.poolToggle), { method: 'PATCH', body: JSON.stringify({ status: next }) });
+        showToast(next === 'disabled' ? '已停用，不再参与自动分配' : '已启用，健康条目可重新分配', 'success');
+        await loadData(); render();
+      } catch (e) { showToast(e.message, 'error'); }
+    };
+  });
+  container.querySelectorAll('[data-pool-delete]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm('从 IP 池删除该条目？此操作不可撤销。')) return;
+      try {
+        await api('/admin/ip-pool/' + encodeURIComponent(btn.dataset.poolDelete), { method: 'DELETE' });
+        showToast('已从池中删除', 'info');
+        await loadData(); render();
+      } catch (e) { showToast(e.message, 'error'); }
+    };
+  });
   container.querySelectorAll('[data-assign-ip]').forEach((btn) => {
     btn.onclick = () => openAssignIPModal(btn.dataset.assignIp, btn.dataset.email);
   });
@@ -924,6 +993,104 @@ function openRevokeIPModal(userId, email) {
       await api('/admin/users/' + encodeURIComponent(userId) + '/ip', { method: 'DELETE' });
       closeModal();
       showToast('已回收静态 IP，套餐已停用', 'success');
+      await loadData(); render();
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+}
+
+function poolStatChip(label, value, color) {
+  const map = {
+    indigo: 'bg-indigo-500/10 text-indigo-300 border-indigo-400/25',
+    emerald: 'bg-emerald-500/10 text-emerald-300 border-emerald-400/25',
+    cyan: 'bg-cyan-500/10 text-cyan-300 border-cyan-400/25',
+    amber: 'bg-amber-500/10 text-amber-300 border-amber-400/25',
+    slate: 'bg-white/[0.04] text-slate-400 border-white/[0.08]',
+  };
+  return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] ${map[color] || map.slate}"><span class="text-slate-500">${esc(label)}</span><strong class="mono text-sm">${esc(value)}</strong></span>`;
+}
+
+function poolStatusBadge(status) {
+  const map = {
+    available: ['bg-emerald-500/12 text-emerald-300 border-emerald-500/30', '可用'],
+    assigned: ['bg-amber-500/12 text-amber-300 border-amber-500/30', '已分配'],
+    disabled: ['bg-white/[0.05] text-slate-400 border-white/[0.1]', '已停用'],
+  };
+  const [cls, label] = map[status] || map.disabled;
+  return `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${cls}">${label}</span>`;
+}
+
+function openAddIPPoolModal() {
+  openModal({
+    title: '批量添加静态 IP 到资源池',
+    bodyHtml: `<div class="space-y-3.5 text-xs">
+      <div class="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-200 leading-relaxed">
+        每行一条，支持 <span class="mono">host:port</span>、<span class="mono">host:port:user:pass</span> 或 <span class="mono">scheme://user:pass@host:port</span>；<span class="mono">#</span> 开头为注释。端点重复自动跳过，凭证 <span class="mono">AES-256-GCM</span> 加密落库，私网地址直接拒绝。<br/>录入后须逐条「探测」变为 healthy 才可分配。
+      </div>
+      <div><label class="block font-medium text-slate-300 mb-1.5">批量文本</label>
+        <textarea id="f-pool-lines" rows="6" spellcheck="false" class="w-full px-3 py-2.5 rounded-xl bg-[#05070d] border border-white/[0.1] text-cyan-100 mono text-[11px] leading-relaxed focus:outline-none focus:border-indigo-400" placeholder="# host:port:user:pass&#10;216.223.21.54:8022:qdqrxwzcez:iormiiumiomty&#10;# 或完整 URL&#10;http://user:pass@1.2.3.4:8080"></textarea>
+      </div>
+      <div class="grid grid-cols-3 gap-3">
+        <div><label class="block text-slate-300 mb-1.5">默认协议（文本未写 scheme 时）</label><select id="f-pool-scheme" class="w-full px-3 py-2 rounded-xl bg-[#121726] border border-white/[0.1] text-white"><option value="http">http</option><option value="https">https</option><option value="socks5">socks5</option></select></div>
+        <div class="col-span-2"><label class="block text-slate-300 mb-1.5">备注（可选，统一写入本批）</label><input id="f-pool-note" class="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white" placeholder="例如：供应商 A · 美国住宅静态" /></div>
+      </div>
+      <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300">也可在下方单条填写后「追加到文本」，一次提交多条。</div>
+      <div class="grid grid-cols-4 gap-2 items-end">
+        <div class="col-span-2"><label class="block text-slate-400 mb-1.5">主机</label><input id="f-pool-one-host" class="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" placeholder="1.2.3.4" /></div>
+        <div><label class="block text-slate-400 mb-1.5">端口</label><input id="f-pool-one-port" type="number" value="8080" class="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
+        <div><label class="block text-slate-400 mb-1.5">账号:密码（可选）</label><input id="f-pool-one-auth" class="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" placeholder="u:p" /></div>
+      </div>
+      <button id="f-pool-append" type="button" class="px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.1] text-slate-200 hover:bg-white/[0.1]">追加到文本</button>
+    </div>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400 hover:bg-white/[0.06]">取消</button><button id="m-save-pool" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white hover:bg-indigo-400">加入资源池</button>`,
+  });
+  $('m-cancel').onclick = closeModal;
+  $('f-pool-append').onclick = () => {
+    const host = $('f-pool-one-host').value.trim();
+    const port = $('f-pool-one-port').value.trim();
+    const auth = $('f-pool-one-auth').value.trim();
+    if (!host || !port) { showToast('请填写主机与端口', 'warning'); return; }
+    const line = $('f-pool-scheme').value + '://' + (auth ? auth + '@' : '') + host + ':' + port;
+    const ta = $('f-pool-lines');
+    ta.value = (ta.value.trim() ? ta.value.replace(/\s*$/, '') + '\n' : '') + line;
+    ta.focus();
+    showToast('已追加到批量文本', 'success');
+  };
+  $('m-save-pool').onclick = async () => {
+    const lines = $('f-pool-lines').value;
+    if (!lines.trim()) { showToast('请填入至少一条 IP', 'warning'); return; }
+    try {
+      const r = await api('/admin/ip-pool', { method: 'POST', body: JSON.stringify({
+        lines, scheme: $('f-pool-scheme').value, note: $('f-pool-note').value.trim(),
+      }) });
+      closeModal();
+      const warns = [...(r.parse_errors || []), ...(r.errors || [])];
+      showToast(`已加入 ${r.added} 条（重复跳过 ${r.duplicates}）` + (warns.length ? `，${warns.length} 条被拒绝` : ''), r.added ? 'success' : 'warning');
+      if (warns.length) console.warn('IP pool rejected:', warns);
+      await loadData(); render();
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+}
+
+function openAssignFromPoolModal(userId, email) {
+  const s = state.admin.poolStats || {};
+  openModal({
+    title: '从 IP 池自动分配专属静态 IP',
+    bodyHtml: `<div class="space-y-3.5 text-xs">
+      <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-200 leading-relaxed">用户：<span class="mono">${esc(email)}</span><br/>系统按入库顺序取一条 <span class="mono">available + healthy</span> 的静态 IP，写入该用户专属出口，自动重绑其上游账号，并把套餐置为 <span class="mono">active</span>。</div>
+      <div class="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] text-slate-300">当前可分配：<strong class="mono text-emerald-300">${esc(s.allocatable ?? 0)}</strong> 条 / 库存 ${esc(s.total ?? state.admin.ipPool.length)} 条。若为 0，请先在池中「探测」出 healthy 条目。</div>
+      <div><label class="block text-slate-300 mb-1.5">套餐天数（留空默认 30 天）</label><input id="f-pool-days" type="number" min="1" placeholder="30" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
+      <p class="text-slate-500">重复分配会先释放该用户旧的池占用再取新的，不会造成库存泄漏。接入真实静态 IP 供应商接口后，此动作可由付款回调自动触发。</p>
+    </div>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400 hover:bg-white/[0.06]">取消</button><button id="m-assign-pool" class="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500">从池分配</button>`,
+  });
+  $('m-cancel').onclick = closeModal;
+  $('m-assign-pool').onclick = async () => {
+    const days = $('f-pool-days').value.trim();
+    const body = days ? { plan_days: Number(days) } : {};
+    try {
+      const r = await api('/admin/users/' + encodeURIComponent(userId) + '/assign-from-pool', { method: 'POST', body: JSON.stringify(body) });
+      closeModal();
+      showToast(`已分配 ${r.proxy?.last_egress_ip || r.pool_item?.host || ''} 并自动重绑账号`, 'success');
       await loadData(); render();
     } catch (e) { showToast(e.message, 'error'); }
   };
