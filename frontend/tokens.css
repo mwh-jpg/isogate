@@ -1,0 +1,185 @@
+/* IsoGate Design Tokens
+ * 依据《B 端后台管理系统可视化设计规范》：第一层视觉层 → 第二层语义层 → 第三层组件层。
+ * 本文件只定义视觉层与语义层；组件与页面代码只允许引用语义变量（见 theme.css）。
+ * 品牌色换肤只需改本文件第二层的映射，组件与页面零改动。
+ */
+:root {
+  /* ---------- 第一层：视觉层 - 品牌与功能色阶 ---------- */
+  --color-blue-1: #e6f4ff;
+  --color-blue-2: #bae0ff;
+  --color-blue-3: #91caff;
+  --color-blue-4: #69b1ff;
+  --color-blue-5: #4096ff;
+  --color-blue-6: #1677ff;
+  --color-blue-7: #0958d9;
+  --color-blue-8: #003eb3;
+  --color-blue-9: #002c8c;
+  --color-blue-10: #001d66;
+
+  --color-green-1: #f6ffed;
+  --color-green-2: #b7eb8f;
+  --color-green-6: #52c41a;
+  --color-green-7: #389e0d;
+
+  --color-gold-1: #fffbe6;
+  --color-gold-2: #ffe58f;
+  --color-gold-6: #faad14;
+  --color-gold-7: #ad6800;
+
+  --color-red-1: #fff2f0;
+  --color-red-2: #ffccc7;
+  --color-red-6: #ff4d4f;
+  --color-red-7: #cf1322;
+
+  --color-gray-1: #ffffff;
+  --color-gray-2: #fafafa;
+  --color-gray-3: #f5f5f5;
+  --color-gray-4: #f0f0f0;
+  --color-gray-5: #d9d9d9;
+  --color-gray-6: #bfbfbf;
+  --color-gray-7: #8c8c8c;
+  --color-gray-8: #595959;
+  --color-gray-9: #434343;
+  --color-gray-10: #262626;
+  --color-gray-11: #1f1f1f;
+  --color-gray-12: #141414;
+  --color-gray-13: #000000;
+
+  /* 图表专用色板：与语义色解耦，避免「绿色第 3 条线」被误读为正向 */
+  --chart-1: #5b8ff9;
+  --chart-2: #5ad8a6;
+  --chart-3: #5d7092;
+  --chart-4: #f6bd16;
+  --chart-5: #e8684a;
+  --chart-6: #6dc8ec;
+  --chart-7: #9270ca;
+  --chart-8: #ff9d4d;
+
+  /* ---------- 第一层：视觉层 - 尺寸与排版 ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  --font-family-number: 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+  --font-size-1: 12px;
+  --font-size-2: 14px;
+  --font-size-3: 16px;
+  --font-size-4: 20px;
+  --font-size-5: 24px;
+  --font-size-6: 30px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 600;
+  --line-height-tight: 1.35;
+  --line-height-base: 1.5715;
+  --line-height-loose: 1.75;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 999px;
+  --border-width: 1px;
+
+  --shadow-1: 0 1px 2px 0 rgba(0, 0, 0, 0.03), 0 1px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px 0 rgba(0, 0, 0, 0.02);
+  --shadow-2: 0 6px 16px 0 rgba(0, 0, 0, 0.08), 0 3px 6px -4px rgba(0, 0, 0, 0.12), 0 9px 28px 8px rgba(0, 0, 0, 0.05);
+  --shadow-3: 0 12px 32px 4px rgba(0, 0, 0, 0.08), 0 8px 20px 8px rgba(0, 0, 0, 0.06);
+  --shadow-focus: 0 0 0 2px rgba(5, 145, 255, 0.1);
+
+  --motion-duration-fast: 0.1s;
+  --motion-duration-base: 0.2s;
+  --motion-duration-slow: 0.3s;
+  --motion-ease-out: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --motion-ease-in-out: cubic-bezier(0.645, 0.045, 0.355, 1);
+
+  --z-index-base: 0;
+  --z-index-sticky: 10;
+  --z-index-modal: 1000;
+  --z-index-dropdown: 1050;
+  --z-index-popover: 1060;
+  --z-index-toast: 1080;
+
+  --icon-xs: 12px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 24px;
+
+  /* 公共框架尺寸（规范第 9 章） */
+  --layout-header-height: 56px;
+  --layout-sider-width: 208px;
+  --layout-sider-collapsed: 48px;
+  --layout-content-max: 1600px;
+  --control-height: 32px;
+  --control-height-lg: 40px;
+  --table-row-height: 48px;
+  --chart-height: 280px;
+  --modal-width: 560px;
+  --toast-width: 320px;
+  --content-width-md: 420px;
+  --content-width-lg: 1200px;
+  --inline-max: 140px;
+  --switch-width: 40px;
+  --switch-height: 22px;
+  --switch-knob: 16px;
+  --switch-travel: 18px;
+
+  /* ---------- 第二层：语义层（只引用视觉层） ---------- */
+  --color-brand: var(--color-blue-6);
+  --color-brand-hover: var(--color-blue-5);
+  --color-brand-active: var(--color-blue-7);
+  --color-brand-bg: var(--color-blue-1);
+
+  --color-success: var(--color-green-6);
+  --color-success-bg: var(--color-green-1);
+  --color-success-text: var(--color-green-7);
+  --color-warning: var(--color-gold-6);
+  --color-warning-bg: var(--color-gold-1);
+  --color-warning-text: var(--color-gold-7);
+  --color-error: var(--color-red-6);
+  --color-error-bg: var(--color-red-1);
+  --color-error-text: var(--color-red-7);
+  --color-info: var(--color-blue-6);
+  --color-processing: var(--color-blue-6);
+
+  --color-text-primary: var(--color-gray-10);
+  --color-text-secondary: rgba(0, 0, 0, 0.65);
+  --color-text-tertiary: rgba(0, 0, 0, 0.45);
+  --color-text-disabled: rgba(0, 0, 0, 0.25);
+  --color-text-inverse: var(--color-gray-1);
+
+  --color-bg-page: var(--color-gray-3);
+  --color-bg-container: var(--color-gray-1);
+  --color-bg-subtle: var(--color-gray-2);
+  --color-bg-mask: rgba(0, 0, 0, 0.45);
+  --color-border: var(--color-gray-5);
+  --color-border-weak: var(--color-gray-4);
+  --color-focus-ring: var(--color-blue-6);
+}
+
+/* 暗色主题：只替换第二层指向，组件与页面代码零改动 */
+[data-theme='dark'] {
+  --color-brand: var(--color-blue-5);
+  --color-brand-hover: var(--color-blue-4);
+  --color-brand-active: var(--color-blue-6);
+  --color-brand-bg: var(--color-blue-9);
+
+  --color-text-primary: rgba(255, 255, 255, 0.85);
+  --color-text-secondary: rgba(255, 255, 255, 0.65);
+  --color-text-tertiary: rgba(255, 255, 255, 0.45);
+  --color-text-disabled: rgba(255, 255, 255, 0.25);
+  --color-text-inverse: var(--color-gray-10);
+
+  --color-bg-page: var(--color-gray-12);
+  --color-bg-container: var(--color-gray-11);
+  --color-bg-subtle: #262626;
+  --color-bg-mask: rgba(0, 0, 0, 0.65);
+  --color-border: #424242;
+  --color-border-weak: #303030;
+  --color-focus-ring: var(--color-blue-5);
+}

@@ -10,6 +10,10 @@ gateway-linux-amd64
 gateway.bin
 *.gz
 
+# 前端早期实验稿 / 浏览器自动化数据（不参与交付）
+frontend/login-redesign.html
+.playwright-cli/
+
 # Python / 编辑器
 __pycache__/
 *.pyc

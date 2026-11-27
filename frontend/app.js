@@ -43,6 +43,11 @@ function esc(value) {
     .replace(/"/g, '&quot;');
 }
 
+// 从规范变量层读取计算值（Canvas/SVG 不直接解析 var()）
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 function isAdmin() {
   return state.user && state.user.role === 'admin';
 }
@@ -68,14 +73,14 @@ function icons(nodes) {
 function showToast(message, type = 'info') {
   const container = $('toast-container');
   const styles = {
-    success: 'bg-[#0a1914]/95 text-emerald-200 border-emerald-500/35 shadow-emerald-950/50',
-    error: 'bg-[#1c0c12]/95 text-rose-200 border-rose-500/35 shadow-rose-950/50',
-    warning: 'bg-[#1c150a]/95 text-amber-200 border-amber-500/35 shadow-amber-950/50',
-    info: 'bg-[#0f1320]/95 text-slate-200 border-indigo-500/35 shadow-black/60',
+    success: 'toast-success',
+    error: 'toast-error',
+    warning: 'toast-warning',
+    info: '',
   };
   const icon = { success: 'check-circle-2', error: 'alert-octagon', warning: 'alert-triangle', info: 'info' }[type] || 'info';
   const el = document.createElement('div');
-  el.className = `pointer-events-auto backdrop-blur-xl flex items-start gap-2.5 px-4 py-3 rounded-xl border shadow-2xl text-xs font-medium transition-all duration-200 ${styles[type] || styles.info}`;
+  el.className = `toast pointer-events-auto transition-all duration-200 ${styles[type] || ''}`;
   el.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4 shrink-0 mt-0.5"></i><span class="leading-relaxed">${esc(message)}</span>`;
   container.appendChild(el);
   icons([el]);
@@ -149,18 +154,18 @@ function providerMeta(provider) {
     anthropic_api: { label: 'Anthropic Official API', badge: 'bg-indigo-500/15 text-indigo-300 border-indigo-400/25' },
     aws_bedrock: { label: 'AWS Bedrock', badge: 'bg-amber-500/15 text-amber-300 border-amber-400/25' },
     vertex_ai: { label: 'Google Vertex AI', badge: 'bg-sky-500/15 text-sky-300 border-sky-400/25' },
-    custom_anthropic: { label: 'Custom Anthropic', badge: 'bg-white/[0.06] text-slate-300 border-white/[0.12]' },
-  }[provider] || { label: provider || '-', badge: 'bg-white/[0.06] text-slate-300 border-white/[0.12]' };
+    custom_anthropic: { label: 'Custom Anthropic', badge: 'bg-white/[0.06] text-neutral-300 border-white/[0.12]' },
+  }[provider] || { label: provider || '-', badge: 'bg-white/[0.06] text-neutral-300 border-white/[0.12]' };
 }
 
 function healthBadge(status) {
   if (status === 'healthy') {
-    return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/12 text-emerald-300 border border-emerald-500/30"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>健康</span>';
+    return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium bg-emerald-500/12 text-emerald-300 border border-emerald-500/30"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>健康</span>';
   }
   if (status === 'unhealthy') {
-    return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-rose-500/12 text-rose-300 border border-rose-500/30"><span class="w-1.5 h-1.5 rounded-full bg-rose-400 shadow-[0_0_8px_#fb7185]"></span>不可达</span>';
+    return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium bg-rose-500/12 text-rose-300 border border-rose-500/30"><span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>不可达</span>';
   }
-  return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-white/[0.05] text-slate-400 border border-white/[0.1]"><span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>未检测</span>';
+  return '<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium bg-white/[0.05] text-neutral-400 border border-white/[0.1]"><span class="w-1.5 h-1.5 rounded-full bg-neutral-400"></span>未检测</span>';
 }
 
 // 一账号一 IP：优先按 proxy.upstream_account_id 精确匹配；
@@ -283,12 +288,12 @@ function render() {
 
   const initials = (state.user?.email || '??').slice(0, 2).toUpperCase();
   $('user-card').innerHTML = `
-    <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-cyan-500 text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-md shadow-indigo-500/20">${esc(initials)}</div>
+    <div class="w-8 h-8 rounded-md bg-neutral-700 text-neutral-100 text-sm font-bold flex items-center justify-center shrink-0">${esc(initials)}</div>
     <div class="min-w-0 flex-1">
-      <div class="text-xs font-semibold text-slate-100 truncate">${esc(state.user?.email || '未登录')}</div>
-      <div class="text-[11px] text-slate-400 truncate mono">${isAdmin() ? 'Admin' : 'Tenant'} · ${esc(state.user?.plan_status || 'unpaid')} · 并发 ${esc(state.user?.max_concurrency || 5)}</div>
+      <div class="text-sm font-semibold text-neutral-100 truncate">${esc(state.user?.email || '未登录')}</div>
+      <div class="text-xs text-neutral-400 truncate mono">${isAdmin() ? 'Admin' : 'Tenant'} · ${esc(state.user?.plan_status || 'unpaid')} · 并发 ${esc(state.user?.max_concurrency || 5)}</div>
     </div>
-    <button id="logout-btn" title="退出登录" class="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10"><i data-lucide="log-out" class="w-3.5 h-3.5"></i></button>
+    <button id="logout-btn" title="退出登录" class="p-1.5 rounded-md text-neutral-500 hover:text-rose-400 hover:bg-rose-500/10"><i data-lucide="log-out" class="w-3.5 h-3.5"></i></button>
   `;
   $('logout-btn').onclick = logout;
 
@@ -319,74 +324,75 @@ function renderOverview(container) {
   const autoProxies = state.proxies.filter((p) => p.source === 'auto');
 
   container.innerHTML = `
-    <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+    <section class="spotlight-card rounded-lg overflow-hidden">
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-px bg-white/[0.07]">
       ${kpiCard('近期请求 / 成功率', 'activity', `${logs.length}`, `${successRate}% 正常透传`, 'indigo', `含 Fail-Closed 拦截 ${logs.length - okLogs.length} 次`)}
       ${kpiCard('Prompt Cache 命中率', 'zap', `${cacheHit}%`, `${(sumCache / 1000).toFixed(1)}k tok`, 'emerald', '原生透传缓存头，无上下文篡改')}
-      ${kpiCard('平均首字延迟 (TTFT)', 'timer', `${avgTtft}<span class="text-base font-medium text-slate-400 ml-1">ms</span>`, 'SSE 零缓冲', 'cyan', '独立 Transport 连接池复用')}
+      ${kpiCard('平均首字延迟 (TTFT)', 'timer', `${avgTtft}<span class="text-lg font-medium text-neutral-400 ml-1">ms</span>`, 'SSE 零缓冲', 'cyan', '独立 Transport 连接池复用')}
       ${kpiCard('专属静态 IP', 'globe-lock', String(autoProxies.length), autoProxies.length ? `${autoProxies.filter((p) => p.health_status === 'healthy').length} 条健康` : '未开通', 'amber', '一账号一 IP · 每个上游账号独立出口')}
-    </section>
+    </div></section>
 
     <section class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-      <div class="lg:col-span-2 spotlight-card rounded-2xl p-5 flex flex-col">
+      <div class="lg:col-span-2 spotlight-card rounded-lg p-5 flex flex-col">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
           <div>
-            <h2 class="text-sm font-semibold text-white">近期用量与性能趋势</h2>
-            <p class="text-xs text-slate-400 mt-0.5">基于上游原始 Usage 统计（单位：千 Tokens / ms）</p>
+            <h2 class="text-base font-semibold text-white">近期用量与性能趋势</h2>
+            <p class="text-sm text-neutral-400 mt-0.5">基于上游原始 Usage 统计（单位：千 Tokens / ms）</p>
           </div>
-          <div class="inline-flex rounded-xl bg-white/[0.04] border border-white/[0.08] p-1 text-xs">
-            <button id="chart-mode-tokens" class="px-3 py-1 rounded-lg font-medium transition-all ${state.chartMode === 'tokens' ? 'bg-indigo-500/25 text-white border border-indigo-400/30' : 'text-slate-400 hover:text-white border border-transparent'}">Token 分布</button>
-            <button id="chart-mode-ttft" class="px-3 py-1 rounded-lg font-medium transition-all ${state.chartMode === 'ttft' ? 'bg-cyan-500/20 text-white border border-cyan-400/30' : 'text-slate-400 hover:text-white border border-transparent'}">TTFT 延迟</button>
+          <div class="inline-flex rounded-lg bg-white/[0.04] border border-white/[0.08] p-1 text-sm">
+            <button id="chart-mode-tokens" class="px-3 py-1 rounded-md font-medium transition-all ${state.chartMode === 'tokens' ? 'bg-indigo-500/25 text-white border border-indigo-400/30' : 'text-neutral-400 hover:text-white border border-transparent'}">Token 分布</button>
+            <button id="chart-mode-ttft" class="px-3 py-1 rounded-md font-medium transition-all ${state.chartMode === 'ttft' ? 'bg-indigo-500/25 text-white border border-indigo-400/30' : 'text-neutral-400 hover:text-white border border-transparent'}">TTFT 延迟</button>
           </div>
         </div>
         <div class="relative h-64 w-full"><canvas id="overview-chart"></canvas></div>
       </div>
 
-      <div class="spotlight-card rounded-2xl p-5 flex flex-col">
+      <div class="spotlight-card rounded-lg p-5 flex flex-col">
         <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]"></span><h2 class="text-sm font-semibold text-white">专属隔离出站拓扑</h2></div>
-          <button data-jump="accounts" class="text-xs font-medium text-cyan-400 hover:text-cyan-300">管理绑定 →</button>
+          <div class="flex items-center gap-2"><h2 class="text-base font-semibold text-white">专属隔离出站拓扑</h2></div>
+          <button data-jump="accounts" class="text-sm font-medium text-indigo-300 hover:text-indigo-200">管理绑定 →</button>
         </div>
         <div class="space-y-3 flex-1">
           ${state.accounts.map((acc) => {
             const proxy = proxyForAccount(acc.id);
             const isOk = acc.status === 'active' && proxy && proxy.health_status === 'healthy';
             return `
-              <div class="rounded-xl p-3.5 border ${isOk ? 'bg-white/[0.025] border-white/[0.07]' : 'bg-rose-500/[0.06] border-rose-500/25'}">
+              <div class="rounded-lg p-3.5 border ${isOk ? 'bg-white/[0.025] border-white/[0.07]' : 'bg-rose-500/[0.06] border-rose-500/25'}">
                 <div class="flex items-center justify-between gap-2">
-                  <span class="text-xs font-semibold text-slate-100 truncate">${esc(acc.name)}</span>
-                  <span class="text-[10px] mono px-2 py-0.5 rounded-full font-semibold ${isOk ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}">${isOk ? 'ISOLATED' : 'BLOCKED'}</span>
+                  <span class="text-sm font-semibold text-neutral-100 truncate">${esc(acc.name)}</span>
+                  <span class="text-xs mono px-2 py-0.5 rounded font-semibold ${isOk ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}">${isOk ? 'ISOLATED' : 'BLOCKED'}</span>
                 </div>
-                <div class="mt-2.5 flex items-center gap-2 text-[11px] mono">
-                  <span class="px-1.5 py-0.5 rounded bg-white/[0.05] text-slate-300 text-[10px]">GW</span>
-                  <svg class="flex-1 h-3 overflow-visible" viewBox="0 0 120 12" preserveAspectRatio="none"><line x1="0" y1="6" x2="120" y2="6" stroke="${isOk ? 'rgba(52,211,153,0.22)' : 'rgba(251,113,133,0.25)'}" stroke-width="1.5"/>${isOk ? '<line class="beam-line" x1="0" y1="6" x2="120" y2="6" stroke="#34d399" stroke-width="1.5"/>' : ''}</svg>
-                  <span class="truncate max-w-[140px] ${isOk ? 'text-cyan-300' : 'text-rose-300'}">${proxy ? esc(proxy.last_egress_ip || '-') : '未分配'}</span>
+                <div class="mt-2.5 flex items-center gap-2 text-xs mono">
+                  <span class="px-1.5 py-0.5 rounded bg-white/[0.05] text-neutral-300 text-xs">GW</span>
+                  <svg class="flex-1 h-3 overflow-visible" viewBox="0 0 120 12" preserveAspectRatio="none"><line x1="0" y1="6" x2="120" y2="6" stroke="${isOk ? cssVar('--color-border') : cssVar('--color-error')}" stroke-width="1.5"/>${isOk ? '<line class="beam-line" x1="0" y1="6" x2="120" y2="6" stroke-width="1.5"/>' : ''}</svg>
+                  <span class="truncate max-w-[140px] ${isOk ? 'text-neutral-200' : 'text-rose-300'}">${proxy ? esc(proxy.last_egress_ip || '-') : '未分配'}</span>
                 </div>
-                <div class="mt-2 flex items-center justify-between text-[11px] text-slate-400"><span>${proxy ? esc(proxy.last_egress_country || '-') : '-'} · 并发 ${acc.max_concurrency}</span><span class="text-emerald-400/90">Fail-Closed</span></div>
+                <div class="mt-2 flex items-center justify-between text-xs text-neutral-400"><span>${proxy ? esc(proxy.last_egress_country || '-') : '-'} · 并发 ${acc.max_concurrency}</span><span class="text-emerald-400/90">Fail-Closed</span></div>
               </div>
             `;
-          }).join('') || '<div class="text-xs text-slate-500">暂无上游账号绑定</div>'}
+          }).join('') || '<div class="text-sm text-neutral-500">暂无上游账号绑定</div>'}
         </div>
       </div>
     </section>
 
-    <section class="spotlight-card rounded-2xl overflow-hidden">
+    <section class="spotlight-card rounded-lg overflow-hidden">
       <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
-        <div><h2 class="text-sm font-semibold text-white">最近官方转发审计日志</h2><p class="text-xs text-slate-400 mt-0.5">每笔请求均回传上游真实模型名与 request-id</p></div>
-        <button data-jump="logs" class="text-xs font-medium text-cyan-400 inline-flex items-center gap-1">查看全部 <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i></button>
+        <div><h2 class="text-base font-semibold text-white">最近官方转发审计日志</h2><p class="text-sm text-neutral-400 mt-0.5">每笔请求均回传上游真实模型名与 request-id</p></div>
+        <button data-jump="logs" class="text-sm font-medium text-indigo-300 inline-flex items-center gap-1">查看全部 <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i></button>
       </div>
-      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs">
-        <thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase tracking-wider"><th class="px-5 py-3">时间</th><th class="px-5 py-3">模型核验</th><th class="px-5 py-3">上游 Request-ID</th><th class="px-5 py-3">出口 IP</th><th class="px-5 py-3 text-right">TTFT / 状态</th></tr></thead>
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-sm">
+        <thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-xs font-semibold text-neutral-400 uppercase tracking-wider"><th class="px-5 py-3">时间</th><th class="px-5 py-3">模型核验</th><th class="px-5 py-3">上游 Request-ID</th><th class="px-5 py-3">出口 IP</th><th class="px-5 py-3 text-right">TTFT / 状态</th></tr></thead>
         <tbody class="divide-y divide-white/[0.05]">
           ${logs.slice(0, 5).map((l) => {
             const verified = l.status_code === 200 && l.actual_model && l.actual_model === l.requested_model;
             return `<tr data-log-detail="${esc(l.id)}" class="hover:bg-white/[0.03] cursor-pointer">
-              <td class="px-5 py-3.5 mono text-slate-400 whitespace-nowrap">${esc(shortTime(l.created_at))}</td>
-              <td class="px-5 py-3.5"><div class="flex items-center gap-2"><span class="mono font-medium text-slate-100">${esc(l.requested_model || '-')}</span><span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${verified ? 'bg-emerald-500/12 text-emerald-300' : 'bg-rose-500/12 text-rose-300'}">${verified ? '一致' : '已阻断'}</span></div></td>
-              <td class="px-5 py-3.5 mono text-slate-400 whitespace-nowrap">${esc(l.upstream_request_id || '-')}</td>
-              <td class="px-5 py-3.5 mono text-cyan-300/90 whitespace-nowrap">${esc(l.egress_ip_snapshot || '-')}</td>
-              <td class="px-5 py-3.5 text-right whitespace-nowrap"><span class="mono text-slate-400 mr-2">${l.ttft_ms || 0}ms</span><span class="px-2 py-0.5 rounded-full mono text-[11px] ${l.status_code === 200 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}">${l.status_code}</span></td>
+              <td class="px-5 py-3.5 mono text-neutral-400 whitespace-nowrap">${esc(shortTime(l.created_at))}</td>
+              <td class="px-5 py-3.5"><div class="flex items-center gap-2"><span class="mono font-medium text-neutral-100">${esc(l.requested_model || '-')}</span><span class="px-2 py-0.5 rounded text-xs font-semibold ${verified ? 'bg-emerald-500/12 text-emerald-300' : 'bg-rose-500/12 text-rose-300'}">${verified ? '一致' : '已阻断'}</span></div></td>
+              <td class="px-5 py-3.5 mono text-neutral-400 whitespace-nowrap">${esc(l.upstream_request_id || '-')}</td>
+              <td class="px-5 py-3.5 mono text-neutral-300 whitespace-nowrap">${esc(l.egress_ip_snapshot || '-')}</td>
+              <td class="px-5 py-3.5 text-right whitespace-nowrap"><span class="mono text-neutral-400 mr-2">${l.ttft_ms || 0}ms</span><span class="px-2 py-0.5 rounded mono text-xs ${l.status_code === 200 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}">${l.status_code}</span></td>
             </tr>`;
-          }).join('') || '<tr><td colspan="5" class="px-5 py-10 text-center text-slate-500">暂无请求记录</td></tr>'}
+          }).join('') || '<tr><td colspan="5" class="px-5 py-10 text-center text-neutral-500">暂无请求记录</td></tr>'}
         </tbody>
       </table></div>
     </section>
@@ -400,16 +406,12 @@ function renderOverview(container) {
 }
 
 function kpiCard(label, icon, value, tag, color, footnote) {
-  const colorMap = {
-    indigo: 'bg-indigo-500/15 text-indigo-300 border-indigo-400/20',
-    emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/20',
-    cyan: 'bg-cyan-500/15 text-cyan-300 border-cyan-400/20',
-    amber: 'bg-amber-500/15 text-amber-300 border-amber-400/20',
-  };
-  return `<div class="spotlight-card rounded-2xl p-5">
-    <div class="flex items-center justify-between"><span class="text-xs font-medium text-slate-400">${esc(label)}</span><span class="p-2 rounded-xl border ${colorMap[color] || colorMap.indigo}"><i data-lucide="${icon}" class="w-4 h-4"></i></span></div>
-    <div class="mt-4 flex items-baseline gap-2.5"><span class="text-3xl font-bold tracking-tight text-white mono">${value}</span><span class="text-xs font-medium text-slate-400">${tag}</span></div>
-    <div class="mt-2 text-[11px] text-slate-500 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-${color}-400"></span>${esc(footnote)}</div>
+  // KPI 行统一用中性色；状态色只留给真正的状态标识（badge / 状态点），不再每个指标一种颜色。
+  // color 参数保留以兼容调用方，样式上不再使用。
+  return `<div class="p-5 card">
+    <div class="flex items-center justify-between"><span class="text-sm font-medium text-neutral-400">${esc(label)}</span><span class="text-neutral-500"><i data-lucide="${icon}" class="w-4 h-4"></i></span></div>
+    <div class="mt-3 flex items-baseline gap-2.5"><span class="text-3xl font-bold tracking-tight text-white mono">${value}</span><span class="text-sm font-medium text-neutral-400">${tag}</span></div>
+    <div class="mt-2 text-xs text-neutral-500">${esc(footnote)}</div>
   </div>`;
 }
 
@@ -431,20 +433,20 @@ function initOverviewChart() {
   const opts = {
     responsive: true, maintainAspectRatio: false,
     plugins: {
-      legend: { position: 'bottom', labels: { color: '#94a3b8', boxWidth: 10, padding: 16, font: { size: 11 } } },
-      tooltip: { backgroundColor: 'rgba(9,12,20,0.95)', titleColor: '#f8fafc', bodyColor: '#cbd5e1', borderColor: 'rgba(129,140,248,0.3)', borderWidth: 1 },
+      legend: { position: 'bottom', labels: { color: cssVar('--color-text-tertiary'), boxWidth: 10, padding: 16, font: { size: 11 } } },
+      tooltip: { backgroundColor: cssVar('--color-gray-11'), titleColor: cssVar('--color-gray-1'), bodyColor: cssVar('--color-text-inverse'), borderColor: cssVar('--color-border'), borderWidth: 1 },
     },
     scales: {
-      x: { stacked: state.chartMode === 'tokens', grid: { display: false }, ticks: { color: '#64748b', font: { size: 11 } } },
-      y: { stacked: state.chartMode === 'tokens', grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b', font: { size: 11 } } },
+      x: { stacked: state.chartMode === 'tokens', grid: { display: false }, ticks: { color: cssVar('--color-text-tertiary'), font: { size: 11 } } },
+      y: { stacked: state.chartMode === 'tokens', grid: { color: cssVar('--color-border-weak') }, ticks: { color: cssVar('--color-text-tertiary'), font: { size: 11 } } },
     },
   };
   const datasets = state.chartMode === 'tokens' ? [
-    { label: '缓存命中 (k)', data: entries.map(([, v]) => +(v.cache / 1000).toFixed(1)), backgroundColor: 'rgba(16,185,129,0.85)', borderRadius: 5 },
-    { label: '新输入 Input (k)', data: entries.map(([, v]) => +(Math.max(0, v.input - v.cache) / 1000).toFixed(1)), backgroundColor: 'rgba(99,102,241,0.85)', borderRadius: 5 },
-    { label: '输出 Output (k)', data: entries.map(([, v]) => +(v.output / 1000).toFixed(1)), backgroundColor: 'rgba(34,211,238,0.65)', borderRadius: 5 },
+    { label: '缓存命中 (k)', data: entries.map(([, v]) => +(v.cache / 1000).toFixed(1)), backgroundColor: cssVar('--chart-2') + 'cc', borderRadius: 4 },
+    { label: '新输入 Input (k)', data: entries.map(([, v]) => +(Math.max(0, v.input - v.cache) / 1000).toFixed(1)), backgroundColor: cssVar('--chart-1') + 'cc', borderRadius: 4 },
+    { label: '输出 Output (k)', data: entries.map(([, v]) => +(v.output / 1000).toFixed(1)), backgroundColor: cssVar('--chart-6') + 'cc', borderRadius: 4 },
   ] : [
-    { label: '平均 TTFT (ms)', data: entries.map(([, v]) => Math.round(v.ttft / Math.max(1, v.n))), borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.12)', fill: true, tension: 0.38, pointBackgroundColor: '#05060a', pointBorderColor: '#22d3ee', pointBorderWidth: 2 },
+    { label: '平均 TTFT (ms)', data: entries.map(([, v]) => Math.round(v.ttft / Math.max(1, v.n))), borderColor: cssVar('--chart-1'), backgroundColor: cssVar('--chart-1') + '1f', fill: true, tension: 0.38, pointBackgroundColor: cssVar('--color-bg-container'), pointBorderColor: cssVar('--chart-1'), pointBorderWidth: 2 },
   ];
   overviewChart = new Chart(canvas, { type: state.chartMode === 'tokens' ? 'bar' : 'line', data: { labels, datasets }, options: opts });
 }
@@ -468,44 +470,44 @@ function renderProxies(container) {
   const plan = state.user?.plan_status || 'unpaid';
   const list = state.proxies.filter((p) => p.source === 'auto');
   container.innerHTML = `
-    <div class="spotlight-card rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-indigo-500/25">
+    <div class="spotlight-card rounded-lg p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-indigo-500/25">
       <div class="flex items-start gap-3.5">
-        <div class="p-2.5 rounded-xl bg-indigo-500/15 text-indigo-300 border border-indigo-400/25 shrink-0"><i data-lucide="shield-check" class="w-4 h-4"></i></div>
+        <div class="p-2.5 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-400/25 shrink-0"><i data-lucide="shield-check" class="w-4 h-4"></i></div>
         <div>
-          <h3 class="text-xs font-semibold text-white">静态 IP 由系统统一分配 · 一账号一 IP</h3>
-          <p class="text-xs text-slate-400 mt-1 leading-relaxed">每绑定一个上游账号，系统就从静态 IP 资源池为它分配一条独立专属出口并完成健康探测；账号之间绝不共用出口，用户端不提供自填代理入口。</p>
+          <h3 class="text-sm font-semibold text-white">静态 IP 由系统统一分配 · 一账号一 IP</h3>
+          <p class="text-sm text-neutral-400 mt-1 leading-relaxed">每绑定一个上游账号，系统就从静态 IP 资源池为它分配一条独立专属出口并完成健康探测；账号之间绝不共用出口，用户端不提供自填代理入口。</p>
         </div>
       </div>
-      <button id="refresh-ip-btn" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-white/[0.06] text-slate-200 border border-white/[0.1] hover:bg-white/[0.1] shrink-0"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>刷新状态</button>
+      <button id="refresh-ip-btn" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-white/[0.06] text-neutral-200 border border-white/[0.1] hover:bg-white/[0.1] shrink-0"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>刷新状态</button>
     </div>
 
     ${list.length ? `<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       ${list.map((p) => {
         const acc = p.upstream_account_id ? getAccount(p.upstream_account_id) : null;
         const owner = acc ? acc.name : (p.upstream_account_id ? esc(p.upstream_account_id.slice(0, 8)) + '…' : '未绑定（占位）');
-        return `<div class="spotlight-card rounded-2xl p-5">
+        return `<div class="spotlight-card rounded-lg p-5">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase mono bg-indigo-500/15 text-indigo-300 border border-indigo-400/25">${esc(p.scheme || '-')}</span><h3 class="text-sm font-semibold text-white">${esc(p.name || '专属静态 IP')}</h3></div>
-              <div class="mt-2 text-xs mono text-slate-400">${esc(p.host || '-')}:${esc(p.port || '-')}</div>
-              <div class="mt-1.5 text-[11px] text-slate-500">绑定账号：<span class="text-cyan-300">${owner}</span></div>
+              <div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded text-xs font-bold uppercase mono bg-indigo-500/15 text-indigo-300 border border-indigo-400/25">${esc(p.scheme || '-')}</span><h3 class="text-base font-semibold text-white">${esc(p.name || '专属静态 IP')}</h3></div>
+              <div class="mt-2 text-sm mono text-neutral-400">${esc(p.host || '-')}:${esc(p.port || '-')}</div>
+              <div class="mt-1.5 text-xs text-neutral-500">绑定账号：<span class="text-neutral-300">${owner}</span></div>
             </div>
             ${healthBadge(p.health_status)}
           </div>
-          <div class="mt-4 pt-4 border-t border-white/[0.06] grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-            <div><div class="text-[11px] text-slate-500">出口 IP</div><div class="mono font-medium text-cyan-300 mt-0.5">${esc(p.last_egress_ip || '待探测')}</div></div>
-            <div><div class="text-[11px] text-slate-500">归属地</div><div class="font-medium text-slate-200 mt-0.5">${esc(p.last_egress_country || '-')}</div></div>
-            <div><div class="text-[11px] text-slate-500">探测延迟</div><div class="mono font-medium text-emerald-400 mt-0.5">${p.last_latency_ms ? esc(p.last_latency_ms) + 'ms' : '-'}</div></div>
-            <div><div class="text-[11px] text-slate-500">分配方式</div><div class="font-medium text-slate-200 mt-0.5">账号专属</div></div>
+          <div class="mt-4 pt-4 border-t border-white/[0.06] grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+            <div><div class="text-xs text-neutral-500">出口 IP</div><div class="mono font-medium text-neutral-300 mt-0.5">${esc(p.last_egress_ip || '待探测')}</div></div>
+            <div><div class="text-xs text-neutral-500">归属地</div><div class="font-medium text-neutral-200 mt-0.5">${esc(p.last_egress_country || '-')}</div></div>
+            <div><div class="text-xs text-neutral-500">探测延迟</div><div class="mono font-medium text-emerald-400 mt-0.5">${p.last_latency_ms ? esc(p.last_latency_ms) + 'ms' : '-'}</div></div>
+            <div><div class="text-xs text-neutral-500">分配方式</div><div class="font-medium text-neutral-200 mt-0.5">账号专属</div></div>
           </div>
-          <div class="mt-4 text-[11px] text-slate-500">最近检测：${esc(fmtTime(p.last_checked_at))} · 套餐状态：<span class="mono text-slate-300">${esc(plan)}</span></div>
+          <div class="mt-4 text-xs text-neutral-500">最近检测：${esc(fmtTime(p.last_checked_at))} · 套餐状态：<span class="mono text-neutral-300">${esc(plan)}</span></div>
         </div>`;
       }).join('')}
     </div>` : `
-      <div class="spotlight-card rounded-2xl p-10 text-center">
-        <i data-lucide="globe-lock" class="w-8 h-8 text-slate-500 mx-auto"></i>
-        <h3 class="text-sm font-semibold text-slate-200 mt-3">尚未分配静态 IP</h3>
-        <p class="text-xs text-slate-500 mt-2">当前套餐状态：${esc(plan)}。付款开通后，每绑定一个上游账号，系统会自动从资源池为它分配一条独立静态 IP 并开启 Fail-Closed 出站。</p>
+      <div class="spotlight-card rounded-lg p-10 text-center">
+        <i data-lucide="globe-lock" class="w-8 h-8 text-neutral-500 mx-auto"></i>
+        <h3 class="text-base font-semibold text-neutral-200 mt-3">尚未分配静态 IP</h3>
+        <p class="text-sm text-neutral-500 mt-2">当前套餐状态：${esc(plan)}。付款开通后，每绑定一个上游账号，系统会自动从资源池为它分配一条独立静态 IP 并开启 Fail-Closed 出站。</p>
       </div>
     `}
   `;
@@ -518,32 +520,32 @@ function renderProxies(container) {
 function renderAccounts(container) {
   container.innerHTML = `
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <div class="text-xs text-slate-400">所有上游凭证均使用 <span class="mono font-semibold text-cyan-300">AES-256-GCM</span> 加密落库；<span class="text-cyan-300">每个账号独占一条</span>系统从资源池自动分配的静态 IP，账号之间不共用出口。</div>
-      <button id="add-account-btn" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white hover:bg-indigo-400 shadow-lg shadow-indigo-500/25"><i data-lucide="plus" class="w-4 h-4"></i>绑定上游账号</button>
+      <div class="text-sm text-neutral-400">所有上游凭证均使用 <span class="mono font-semibold text-neutral-300">AES-256-GCM</span> 加密落库；<span class="text-neutral-300">每个账号独占一条</span>系统从资源池自动分配的静态 IP，账号之间不共用出口。</div>
+      <button id="add-account-btn" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-500 text-white hover:bg-indigo-400"><i data-lucide="plus" class="w-4 h-4"></i>绑定上游账号</button>
     </div>
     <div class="space-y-4">
       ${state.accounts.map((acc) => {
         const pm = providerMeta(acc.provider);
         const p = proxyForAccount(acc.id);
         const ok = acc.status === 'active' && p && p.health_status === 'healthy';
-        return `<div class="spotlight-card rounded-2xl p-5">
+        return `<div class="spotlight-card rounded-lg p-5">
           <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div class="space-y-2 min-w-0">
-              <div class="flex flex-wrap items-center gap-2"><h3 class="text-sm font-semibold text-white">${esc(acc.name)}</h3><span class="px-2.5 py-0.5 rounded-full text-[11px] border ${pm.badge}">${esc(pm.label)}</span><span class="px-2.5 py-0.5 rounded-full text-[11px] ${acc.status === 'active' ? 'bg-emerald-500/12 text-emerald-300 border border-emerald-500/25' : 'bg-amber-500/12 text-amber-300 border border-amber-500/25'}">${acc.status === 'active' ? '运行中' : esc(acc.status)}</span></div>
-              <div class="flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-slate-400"><span class="mono">Base URL：${esc(acc.base_url || '-')}</span><span>并发上限：<strong class="text-white mono">${esc(acc.max_concurrency)}</strong></span></div>
+              <div class="flex flex-wrap items-center gap-2"><h3 class="text-base font-semibold text-white">${esc(acc.name)}</h3><span class="px-2.5 py-0.5 rounded text-xs border ${pm.badge}">${esc(pm.label)}</span><span class="px-2.5 py-0.5 rounded text-xs ${acc.status === 'active' ? 'bg-emerald-500/12 text-emerald-300 border border-emerald-500/25' : 'bg-amber-500/12 text-amber-300 border border-amber-500/25'}">${acc.status === 'active' ? '运行中' : esc(acc.status)}</span></div>
+              <div class="flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-neutral-400"><span class="mono">Base URL：${esc(acc.base_url || '-')}</span><span>并发上限：<strong class="text-white mono">${esc(acc.max_concurrency)}</strong></span></div>
             </div>
             <div class="flex flex-wrap items-center gap-3">
-              <div class="px-3.5 py-2 rounded-xl border ${ok ? 'border-white/[0.08] bg-white/[0.03]' : 'border-rose-500/30 bg-rose-500/10'} text-xs">
-                <div class="text-[10px] text-slate-500 uppercase font-semibold tracking-wider">绑定专属静态 IP</div>
-                <div class="mt-0.5 flex items-center gap-2 font-medium ${ok ? 'text-slate-100' : 'text-rose-300'}"><span class="w-1.5 h-1.5 rounded-full ${ok ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-rose-400'}"></span>${p ? esc(p.last_egress_ip || p.name) : '未分配'}</div>
+              <div class="px-3.5 py-2 rounded-lg border ${ok ? 'border-white/[0.08] bg-white/[0.03]' : 'border-rose-500/30 bg-rose-500/10'} text-sm">
+                <div class="text-xs text-neutral-500 uppercase font-semibold tracking-wider">绑定专属静态 IP</div>
+                <div class="mt-0.5 flex items-center gap-2 font-medium ${ok ? 'text-neutral-100' : 'text-rose-300'}"><span class="w-1.5 h-1.5 rounded-full ${ok ? 'bg-emerald-400' : 'bg-rose-400'}"></span>${p ? esc(p.last_egress_ip || p.name) : '未分配'}</div>
               </div>
-              <div class="px-3.5 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs"><div class="text-[10px] text-slate-500 uppercase font-semibold tracking-wider">出站策略</div><div class="mt-0.5 font-medium text-emerald-300">Fail-Closed 强制开启</div></div>
-              <button data-test-account="${esc(acc.id)}" class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs bg-white/[0.05] text-slate-200 border border-white/[0.08] hover:bg-indigo-500/15"><i data-lucide="plug-zap" class="w-3.5 h-3.5 text-cyan-400"></i>测试连通</button>
-              <button data-delete-account="${esc(acc.id)}" class="p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10" title="删除"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+              <div class="px-3.5 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-sm"><div class="text-xs text-neutral-500 uppercase font-semibold tracking-wider">出站策略</div><div class="mt-0.5 font-medium text-emerald-300">Fail-Closed 强制开启</div></div>
+              <button data-test-account="${esc(acc.id)}" class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg text-sm bg-white/[0.05] text-neutral-200 border border-white/[0.08] hover:bg-indigo-500/15"><i data-lucide="plug-zap" class="w-3.5 h-3.5 text-neutral-400"></i>测试连通</button>
+              <button data-delete-account="${esc(acc.id)}" class="p-2 rounded-md text-neutral-500 hover:text-rose-400 hover:bg-rose-500/10" title="删除"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
             </div>
           </div>
         </div>`;
-      }).join('') || '<div class="spotlight-card rounded-2xl p-10 text-center text-xs text-slate-500">暂无上游账号</div>'}
+      }).join('') || '<div class="spotlight-card rounded-lg p-10 text-center text-sm text-neutral-500">暂无上游账号</div>'}
     </div>
   `;
   $('add-account-btn').onclick = openAddAccountModal;
@@ -556,18 +558,18 @@ function openAddAccountModal() {
   openModal({
     title: '绑定上游账号',
     bodyHtml: `
-      <div class="space-y-3.5 text-xs">
-        <div id="f-acc-alert" class="hidden p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-200 leading-relaxed"></div>
-        <div><label class="block font-medium text-slate-300 mb-1.5">账号显示名称</label><input id="f-acc-name" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white focus:outline-none focus:border-indigo-400" placeholder="例如：Anthropic 团队专用 Key" /></div>
+      <div class="space-y-3.5 text-sm">
+        <div id="f-acc-alert" class="hidden p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-200 leading-relaxed"></div>
+        <div><label class="block font-medium text-neutral-300 mb-1.5">账号显示名称</label><input id="f-acc-name" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white focus:outline-none focus:border-indigo-400" placeholder="例如：Anthropic 团队专用 Key" /></div>
         <div class="grid grid-cols-2 gap-3">
-          <div><label class="block font-medium text-slate-300 mb-1.5">上游供应商</label><select id="f-acc-provider" class="w-full px-3 py-2.5 rounded-xl bg-[#121726] border border-white/[0.1] text-white focus:outline-none focus:border-indigo-400"><option value="anthropic_api">Anthropic Official API</option><option value="aws_bedrock">AWS Bedrock</option><option value="vertex_ai">Google Vertex AI</option><option value="custom_anthropic">Custom Anthropic</option></select></div>
-          <div><label class="block font-medium text-slate-300 mb-1.5">并发上限</label><input id="f-acc-conc" type="number" min="1" max="20" value="2" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono focus:outline-none focus:border-indigo-400" /></div>
+          <div><label class="block font-medium text-neutral-300 mb-1.5">上游供应商</label><select id="f-acc-provider" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white focus:outline-none focus:border-indigo-400"><option value="anthropic_api">Anthropic Official API</option><option value="aws_bedrock">AWS Bedrock</option><option value="vertex_ai">Google Vertex AI</option><option value="custom_anthropic">Custom Anthropic</option></select></div>
+          <div><label class="block font-medium text-neutral-300 mb-1.5">并发上限</label><input id="f-acc-conc" type="number" min="1" max="20" value="2" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono focus:outline-none focus:border-indigo-400" /></div>
         </div>
-        <div><label class="block font-medium text-slate-300 mb-1.5">Base URL（可选）</label><input id="f-acc-base" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono focus:outline-none focus:border-indigo-400" placeholder="https://api.anthropic.com" /></div>
-        <div><label class="block font-medium text-slate-300 mb-1.5">上游凭证（AES-256-GCM 加密）</label><input id="f-acc-cred" type="password" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono focus:outline-none focus:border-indigo-400" placeholder="sk-ant-api03-..." /></div>
-        <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 leading-relaxed">创建时系统会从静态 IP 资源池为该账号 <span class="font-semibold">单独分配一条独立出口</span>（一账号一 IP，不与其他账号共用），并强制 Fail-Closed。当前套餐：<span class="mono">${esc(plan)}</span>；若资源池暂无可用 IP，<span class="font-semibold">将无法添加账号，请联系管理员</span>补充静态 IP。</div>
+        <div><label class="block font-medium text-neutral-300 mb-1.5">Base URL（可选）</label><input id="f-acc-base" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono focus:outline-none focus:border-indigo-400" placeholder="https://api.anthropic.com" /></div>
+        <div><label class="block font-medium text-neutral-300 mb-1.5">上游凭证（AES-256-GCM 加密）</label><input id="f-acc-cred" type="password" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono focus:outline-none focus:border-indigo-400" placeholder="sk-ant-api03-..." /></div>
+        <div class="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 leading-relaxed">创建时系统会从静态 IP 资源池为该账号 <span class="font-semibold">单独分配一条独立出口</span>（一账号一 IP，不与其他账号共用），并强制 Fail-Closed。当前套餐：<span class="mono">${esc(plan)}</span>；若资源池暂无可用 IP，<span class="font-semibold">将无法添加账号，请联系管理员</span>补充静态 IP。</div>
       </div>`,
-    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400 hover:bg-white/[0.06]">取消</button><button id="m-save-acc" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white hover:bg-indigo-400">加密保存绑定</button>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-lg text-sm text-neutral-400 hover:bg-white/[0.06]">取消</button><button id="m-save-acc" class="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-500 text-white hover:bg-indigo-400">加密保存绑定</button>`,
   });
   $('m-cancel').onclick = closeModal;
   $('m-save-acc').onclick = async () => {
@@ -622,39 +624,39 @@ function renderKeys(container) {
   const snippet = buildSnippet(selected ? selected.key_prefix || 'sk-iso-…' : 'sk-iso-your-key');
 
   container.innerHTML = `
-    <section class="spotlight-card rounded-2xl overflow-hidden">
+    <section class="spotlight-card rounded-lg overflow-hidden">
       <div class="px-5 py-4 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-2">
-        <div><h2 class="text-sm font-semibold text-white">已签发的网关 API Key</h2><p class="text-xs text-slate-400 mt-0.5">数据库仅保存 SHA-256 哈希，每枚 Key 严格锁定到单个上游账号</p></div>
-        <button id="keys-create-btn" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white hover:bg-indigo-400"><i data-lucide="plus" class="w-3.5 h-3.5"></i>签发新 Key</button>
+        <div><h2 class="text-base font-semibold text-white">已签发的网关 API Key</h2><p class="text-sm text-neutral-400 mt-0.5">数据库仅保存 SHA-256 哈希，每枚 Key 严格锁定到单个上游账号</p></div>
+        <button id="keys-create-btn" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-indigo-500 text-white hover:bg-indigo-400"><i data-lucide="plus" class="w-3.5 h-3.5"></i>签发新 Key</button>
       </div>
-      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs">
-        <thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase tracking-wider"><th class="px-5 py-3">名称 / 前缀</th><th class="px-5 py-3">绑定账号</th><th class="px-5 py-3">RPM</th><th class="px-5 py-3">状态 / 最近使用</th><th class="px-5 py-3 text-right">操作</th></tr></thead>
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-sm">
+        <thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-xs font-semibold text-neutral-400 uppercase tracking-wider"><th class="px-5 py-3">名称 / 前缀</th><th class="px-5 py-3">绑定账号</th><th class="px-5 py-3">RPM</th><th class="px-5 py-3">状态 / 最近使用</th><th class="px-5 py-3 text-right">操作</th></tr></thead>
         <tbody class="divide-y divide-white/[0.05]">
           ${state.keys.map((k) => {
             const acc = getAccount(k.upstream_account_id);
             return `<tr class="hover:bg-white/[0.025]">
-              <td class="px-5 py-3.5"><div class="font-semibold text-slate-100">${esc(k.name)}</div><div class="mono text-[11px] text-cyan-300/80 mt-0.5">${esc(k.key_prefix || '')}…</div></td>
-              <td class="px-5 py-3.5"><div class="font-medium text-slate-200">${acc ? esc(acc.name) : '-'}</div><div class="text-[11px] text-slate-500 mt-0.5">${(k.allowed_models || []).length} 个允许模型</div></td>
-              <td class="px-5 py-3.5 mono text-slate-300">${esc(k.rpm_limit)} req/min</td>
-              <td class="px-5 py-3.5"><span class="px-2.5 py-0.5 rounded-full text-[11px] ${k.status === 'active' ? 'bg-emerald-500/12 text-emerald-300 border border-emerald-500/25' : 'bg-white/[0.05] text-slate-500'}">${k.status === 'active' ? '活跃' : '已吊销'}</span><div class="text-[11px] text-slate-500 mt-1">${esc(fmtTime(k.last_used_at))}</div></td>
-              <td class="px-5 py-3.5 text-right">${k.status === 'active' ? `<button data-revoke-key="${esc(k.id)}" class="px-2.5 py-1 rounded-lg text-xs text-rose-400 hover:bg-rose-500/15">吊销</button>` : '<span class="text-slate-600">不可恢复</span>'}</td>
+              <td class="px-5 py-3.5"><div class="font-semibold text-neutral-100">${esc(k.name)}</div><div class="mono text-xs text-neutral-400 mt-0.5">${esc(k.key_prefix || '')}…</div></td>
+              <td class="px-5 py-3.5"><div class="font-medium text-neutral-200">${acc ? esc(acc.name) : '-'}</div><div class="text-xs text-neutral-500 mt-0.5">${(k.allowed_models || []).length} 个允许模型</div></td>
+              <td class="px-5 py-3.5 mono text-neutral-300">${esc(k.rpm_limit)} req/min</td>
+              <td class="px-5 py-3.5"><span class="px-2.5 py-0.5 rounded text-xs ${k.status === 'active' ? 'bg-emerald-500/12 text-emerald-300 border border-emerald-500/25' : 'bg-white/[0.05] text-neutral-500'}">${k.status === 'active' ? '活跃' : '已吊销'}</span><div class="text-xs text-neutral-500 mt-1">${esc(fmtTime(k.last_used_at))}</div></td>
+              <td class="px-5 py-3.5 text-right">${k.status === 'active' ? `<button data-revoke-key="${esc(k.id)}" class="px-2.5 py-1 rounded-md text-sm text-rose-400 hover:bg-rose-500/15">吊销</button>` : '<span class="text-neutral-600">不可恢复</span>'}</td>
             </tr>`;
-          }).join('') || '<tr><td colspan="5" class="px-5 py-10 text-center text-slate-500">暂无 Key</td></tr>'}
+          }).join('') || '<tr><td colspan="5" class="px-5 py-10 text-center text-neutral-500">暂无 Key</td></tr>'}
         </tbody>
       </table></div>
     </section>
 
-    <section class="spotlight-card rounded-2xl p-5 space-y-4">
+    <section class="spotlight-card rounded-lg p-5 space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 class="text-sm font-semibold text-white">一键接入配置生成器</h2><p class="text-xs text-slate-400 mt-0.5">替换 Base URL 与 Key 即可零改造接入 Claude Code / SDK</p></div>
-        <select id="snippet-key-select" class="text-xs px-3 py-1.5 rounded-lg bg-[#121726] border border-white/[0.1] text-slate-200">${activeKeys.map((k) => `<option value="${esc(k.id)}" ${k.id === state.selectedSnippetKeyId ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
+        <div><h2 class="text-base font-semibold text-white">一键接入配置生成器</h2><p class="text-sm text-neutral-400 mt-0.5">替换 Base URL 与 Key 即可零改造接入 Claude Code / SDK</p></div>
+        <select id="snippet-key-select" class="text-sm px-3 py-1.5 rounded-md bg-white/[0.04] border border-white/[0.1] text-neutral-200">${activeKeys.map((k) => `<option value="${esc(k.id)}" ${k.id === state.selectedSnippetKeyId ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
       </div>
       <div class="flex flex-wrap gap-1.5">
-        ${[['claude-code', 'Claude Code CLI'], ['curl', 'cURL (/v1/messages)'], ['python', 'Anthropic Python SDK'], ['openai', 'OpenAI 兼容格式']].map(([id, label]) => `<button data-snippet-tab="${id}" class="px-3 py-1.5 rounded-lg text-xs ${state.snippetTab === id ? 'bg-indigo-500/20 text-white border border-indigo-400/35' : 'bg-white/[0.03] text-slate-400 border border-white/[0.06]'}">${label}</button>`).join('')}
+        ${[['claude-code', 'Claude Code CLI'], ['curl', 'cURL (/v1/messages)'], ['python', 'Anthropic Python SDK'], ['openai', 'OpenAI 兼容格式']].map(([id, label]) => `<button data-snippet-tab="${id}" class="px-3 py-1.5 rounded-md text-sm ${state.snippetTab === id ? 'bg-indigo-500/20 text-white border border-indigo-400/35' : 'bg-white/[0.03] text-neutral-400 border border-white/[0.06]'}">${label}</button>`).join('')}
       </div>
-      <div class="rounded-xl bg-[#05070d] border border-white/[0.09] overflow-hidden">
-        <div class="px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.06] flex items-center justify-between"><div class="flex gap-2"><span class="w-2.5 h-2.5 rounded-full bg-[#ff5f56]"></span><span class="w-2.5 h-2.5 rounded-full bg-[#ffbd2e]"></span><span class="w-2.5 h-2.5 rounded-full bg-[#27c93f]"></span><span class="ml-2 text-[11px] mono text-slate-500">isogate-quickstart.sh</span></div><button id="copy-snippet-btn" class="text-[11px] px-2.5 py-1 rounded-md bg-white/[0.06] text-slate-200">复制配置</button></div>
-        <pre class="mono text-xs text-cyan-100/90 leading-relaxed p-4 overflow-x-auto"><code>${esc(snippet)}</code></pre>
+      <div class="rounded-lg bg-white/[0.04] border border-white/[0.09] overflow-hidden">
+        <div class="px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.06] flex items-center justify-between"><div class="flex gap-2"><span class="status-dot"></span><span class="status-dot"></span><span class="status-dot"></span><span class="ml-2 text-xs mono text-neutral-500">isogate-quickstart.sh</span></div><button id="copy-snippet-btn" class="text-xs px-2.5 py-1 rounded bg-white/[0.06] text-neutral-200">复制配置</button></div>
+        <pre class="mono text-sm text-neutral-200 leading-relaxed p-4 overflow-x-auto"><code>${esc(snippet)}</code></pre>
       </div>
     </section>
   `;
@@ -677,12 +679,12 @@ function openCreateKeyModal() {
   if (!state.accounts.length) { showToast('请先绑定上游账号', 'warning'); return; }
   openModal({
     title: '签发新的网关 API Key',
-    bodyHtml: `<div class="space-y-3.5 text-xs">
-      <div><label class="block font-medium text-slate-300 mb-1.5">Key 用途备注</label><input id="f-key-name" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white" placeholder="例如：办公室台式机 · Claude Code" /></div>
-      <div><label class="block font-medium text-slate-300 mb-1.5">绑定上游账号</label><select id="f-key-acc" class="w-full px-3 py-2.5 rounded-xl bg-[#121726] border border-white/[0.1] text-white">${state.accounts.map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}</select></div>
-      <div><label class="block font-medium text-slate-300 mb-1.5">RPM 限流</label><input id="f-key-rpm" type="number" value="60" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
+    bodyHtml: `<div class="space-y-3.5 text-sm">
+      <div><label class="block font-medium text-neutral-300 mb-1.5">Key 用途备注</label><input id="f-key-name" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white" placeholder="例如：办公室台式机 · Claude Code" /></div>
+      <div><label class="block font-medium text-neutral-300 mb-1.5">绑定上游账号</label><select id="f-key-acc" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white">${state.accounts.map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}</select></div>
+      <div><label class="block font-medium text-neutral-300 mb-1.5">RPM 限流</label><input id="f-key-rpm" type="number" value="60" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
     </div>`,
-    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400">取消</button><button id="m-create-key" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white">立即签发</button>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-lg text-sm text-neutral-400">取消</button><button id="m-create-key" class="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-500 text-white">立即签发</button>`,
   });
   $('m-cancel').onclick = closeModal;
   $('m-create-key').onclick = async () => {
@@ -695,8 +697,8 @@ function openCreateKeyModal() {
       render();
       openModal({
         title: 'API Key 已签发（仅展示一次）',
-        bodyHtml: `<div class="space-y-3 text-xs"><div class="p-3 rounded-xl bg-amber-500/12 border border-amber-500/30 text-amber-200">服务端仅保存 SHA-256 哈希，关闭后无法再次查看完整明文。</div><div class="p-3.5 rounded-xl bg-[#05070d] border border-emerald-500/30 text-emerald-300 mono break-all select-all">${esc(res.key)}</div></div>`,
-        footerHtml: `<button id="m-copy-new-key" class="px-3.5 py-2 rounded-xl text-xs bg-indigo-500 text-white">复制完整 Key</button><button id="m-done-key" class="px-3.5 py-2 rounded-xl text-xs text-slate-400">我已保存</button>`,
+        bodyHtml: `<div class="space-y-3 text-sm"><div class="p-3 rounded-lg bg-amber-500/12 border border-amber-500/30 text-amber-200">服务端仅保存 SHA-256 哈希，关闭后无法再次查看完整明文。</div><div class="p-3.5 rounded-lg bg-white/[0.04] border border-emerald-500/30 text-emerald-300 mono break-all select-all">${esc(res.key)}</div></div>`,
+        footerHtml: `<button id="m-copy-new-key" class="px-3.5 py-2 rounded-lg text-sm bg-indigo-500 text-white">复制完整 Key</button><button id="m-done-key" class="px-3.5 py-2 rounded-lg text-sm text-neutral-400">我已保存</button>`,
       });
       $('m-copy-new-key').onclick = () => copyText(res.key, '新 API Key');
       $('m-done-key').onclick = closeModal;
@@ -709,8 +711,8 @@ function openRevokeModal(id) {
   if (!k) return;
   openModal({
     title: '确认吊销 API Key',
-    bodyHtml: `<p class="text-xs text-slate-300 leading-relaxed">吊销后 <span class="mono text-white">${esc(k.key_prefix)}…</span> 的所有请求将立即返回 401，此操作不可撤销。</p>`,
-    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400">取消</button><button id="m-revoke" class="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 text-white">确认吊销</button>`,
+    bodyHtml: `<p class="text-sm text-neutral-300 leading-relaxed">吊销后 <span class="mono text-white">${esc(k.key_prefix)}…</span> 的所有请求将立即返回 401，此操作不可撤销。</p>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-lg text-sm text-neutral-400">取消</button><button id="m-revoke" class="px-4 py-2 rounded-lg text-sm font-semibold bg-rose-600 text-white">确认吊销</button>`,
   });
   $('m-cancel').onclick = closeModal;
   $('m-revoke').onclick = async () => {
@@ -735,9 +737,9 @@ function filteredLogs(source = state.logs) {
 function renderLogs(container) {
   const rows = filteredLogs();
   container.innerHTML = `
-    <div class="spotlight-card rounded-2xl p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-      <div class="relative flex-1 max-w-md"><i data-lucide="search" class="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2"></i><input id="log-search-input" value="${esc(state.logFilter.query)}" placeholder="搜索 request-id、模型名或出口 IP..." class="w-full pl-9 pr-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.09] text-xs text-white" /></div>
-      <div class="flex gap-2"><select id="log-status-select" class="px-3 py-2 rounded-xl bg-[#121726] border border-white/[0.09] text-xs text-slate-200"><option value="all">全部状态码</option><option value="200" ${state.logFilter.status === '200' ? 'selected' : ''}>200 正常</option><option value="401" ${state.logFilter.status === '401' ? 'selected' : ''}>401 凭证</option><option value="403" ${state.logFilter.status === '403' ? 'selected' : ''}>403 拦截</option></select><button id="log-reset-btn" class="px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.09] text-xs text-slate-300">重置</button></div>
+    <div class="spotlight-card rounded-lg p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+      <div class="relative flex-1 max-w-md"><i data-lucide="search" class="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2"></i><input id="log-search-input" value="${esc(state.logFilter.query)}" placeholder="搜索 request-id、模型名或出口 IP..." class="w-full pl-9 pr-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.09] text-sm text-white" /></div>
+      <div class="flex gap-2"><select id="log-status-select" class="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.09] text-sm text-neutral-200"><option value="all">全部状态码</option><option value="200" ${state.logFilter.status === '200' ? 'selected' : ''}>200 正常</option><option value="401" ${state.logFilter.status === '401' ? 'selected' : ''}>401 凭证</option><option value="403" ${state.logFilter.status === '403' ? 'selected' : ''}>403 拦截</option></select><button id="log-reset-btn" class="px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.09] text-sm text-neutral-300">重置</button></div>
     </div>
     ${logTableHtml(rows, 'tenant')}
   `;
@@ -752,20 +754,20 @@ function renderLogs(container) {
 }
 
 function logTableHtml(rows, scope) {
-  return `<div class="spotlight-card rounded-2xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs">
-    <thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase tracking-wider"><th class="px-4 py-3">时间</th><th class="px-4 py-3">请求模型 → 实际模型</th><th class="px-4 py-3">Request-ID</th><th class="px-4 py-3">出口 IP</th><th class="px-4 py-3 text-right">Tokens (In / Cache / Out)</th><th class="px-4 py-3 text-right">TTFT / 状态</th></tr></thead>
+  return `<div class="spotlight-card rounded-lg overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left border-collapse text-sm">
+    <thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-xs font-semibold text-neutral-400 uppercase tracking-wider"><th class="px-4 py-3">时间</th><th class="px-4 py-3">请求模型 → 实际模型</th><th class="px-4 py-3">Request-ID</th><th class="px-4 py-3">出口 IP</th><th class="px-4 py-3 text-right">Tokens (In / Cache / Out)</th><th class="px-4 py-3 text-right">TTFT / 状态</th></tr></thead>
     <tbody class="divide-y divide-white/[0.05]">${rows.length ? rows.map((l) => {
       const verified = l.status_code === 200 && l.actual_model && l.actual_model === l.requested_model;
       const attr = scope === 'admin' ? `data-admin-log-detail="${esc(l.id)}"` : `data-log-detail="${esc(l.id)}"`;
       return `<tr ${attr} class="hover:bg-white/[0.03] cursor-pointer">
-        <td class="px-4 py-3.5 mono text-slate-400 whitespace-nowrap">${esc(fmtTime(l.created_at))}</td>
-        <td class="px-4 py-3.5"><div class="mono font-medium text-slate-100">${esc(l.requested_model || '-')}</div><div class="mt-0.5 text-[11px] ${verified ? 'text-emerald-400' : 'text-rose-400'}">${verified ? '实际一致 · 官方转发' : esc(l.error_message || (l.actual_model ? l.actual_model : '上游未响应'))}</div></td>
-        <td class="px-4 py-3.5 mono text-slate-400 whitespace-nowrap">${esc(l.upstream_request_id || '-')}</td>
-        <td class="px-4 py-3.5 mono text-cyan-300/90 whitespace-nowrap">${esc(l.egress_ip_snapshot || '-')}</td>
-        <td class="px-4 py-3.5 text-right mono text-slate-300 whitespace-nowrap">${(l.input_tokens || 0).toLocaleString()} / <span class="text-emerald-400">${(l.cache_read_tokens || 0).toLocaleString()}</span> / ${(l.output_tokens || 0).toLocaleString()}</td>
-        <td class="px-4 py-3.5 text-right whitespace-nowrap"><span class="mono text-slate-400 mr-2">${l.ttft_ms || 0}ms</span><span class="px-2 py-0.5 rounded-full mono ${l.status_code === 200 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}">${l.status_code}</span></td>
+        <td class="px-4 py-3.5 mono text-neutral-400 whitespace-nowrap">${esc(fmtTime(l.created_at))}</td>
+        <td class="px-4 py-3.5"><div class="mono font-medium text-neutral-100">${esc(l.requested_model || '-')}</div><div class="mt-0.5 text-xs ${verified ? 'text-emerald-400' : 'text-rose-400'}">${verified ? '实际一致 · 官方转发' : esc(l.error_message || (l.actual_model ? l.actual_model : '上游未响应'))}</div></td>
+        <td class="px-4 py-3.5 mono text-neutral-400 whitespace-nowrap">${esc(l.upstream_request_id || '-')}</td>
+        <td class="px-4 py-3.5 mono text-neutral-300 whitespace-nowrap">${esc(l.egress_ip_snapshot || '-')}</td>
+        <td class="px-4 py-3.5 text-right mono text-neutral-300 whitespace-nowrap">${(l.input_tokens || 0).toLocaleString()} / <span class="text-emerald-400">${(l.cache_read_tokens || 0).toLocaleString()}</span> / ${(l.output_tokens || 0).toLocaleString()}</td>
+        <td class="px-4 py-3.5 text-right whitespace-nowrap"><span class="mono text-neutral-400 mr-2">${l.ttft_ms || 0}ms</span><span class="px-2 py-0.5 rounded mono ${l.status_code === 200 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}">${l.status_code}</span></td>
       </tr>`;
-    }).join('') : '<tr><td colspan="6" class="px-5 py-12 text-center text-slate-500">没有匹配的审计日志</td></tr>'}
+    }).join('') : '<tr><td colspan="6" class="px-5 py-12 text-center text-neutral-500">没有匹配的审计日志</td></tr>'}
     </tbody></table></div></div>`;
 }
 
@@ -776,19 +778,19 @@ function openLogDetailModal(id, source) {
   const verified = l.status_code === 200 && l.actual_model && l.actual_model === l.requested_model;
   openModal({
     title: `审计核验详情 #${esc(l.id)}`,
-    bodyHtml: `<div class="space-y-4 text-xs">
-      <div class="p-3.5 rounded-xl border ${verified ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200' : 'bg-rose-500/10 border-rose-500/30 text-rose-200'}"><div class="font-semibold">${verified ? '官方转发核验通过' : '请求被阻断或未完成时请求'}</div><div class="mt-1 opacity-90">${esc(l.error_message || '')}</div></div>
-      <div class="grid grid-cols-2 gap-3.5 bg-white/[0.03] rounded-xl p-4 border border-white/[0.07]">
-        <div><div class="text-slate-500">请求模型</div><div class="mono text-white mt-0.5">${esc(l.requested_model || '-')}</div></div>
-        <div><div class="text-slate-500">实际模型</div><div class="mono text-white mt-0.5">${esc(l.actual_model || '-')}</div></div>
-        <div><div class="text-slate-500">出口 IP</div><div class="mono text-cyan-300 mt-0.5">${esc(l.egress_ip_snapshot || '-')}</div></div>
-        <div><div class="text-slate-500">传输模式</div><div class="text-slate-200 mt-0.5">${l.is_stream ? 'SSE 流式' : 'JSON'}</div></div>
-        <div><div class="text-slate-500">TTFT / 总耗时</div><div class="mono text-slate-200 mt-0.5">${l.ttft_ms || 0}ms / ${l.total_latency_ms || 0}ms</div></div>
-        <div><div class="text-slate-500">用户 / Key</div><div class="mono text-slate-200 mt-0.5">${esc(l.user_id || l.api_key_id || '-')}</div></div>
+    bodyHtml: `<div class="space-y-4 text-sm">
+      <div class="p-3.5 rounded-lg border ${verified ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200' : 'bg-rose-500/10 border-rose-500/30 text-rose-200'}"><div class="font-semibold">${verified ? '官方转发核验通过' : '请求被阻断或未完成时请求'}</div><div class="mt-1 opacity-90">${esc(l.error_message || '')}</div></div>
+      <div class="grid grid-cols-2 gap-3.5 bg-white/[0.03] rounded-lg p-4 border border-white/[0.07]">
+        <div><div class="text-neutral-500">请求模型</div><div class="mono text-white mt-0.5">${esc(l.requested_model || '-')}</div></div>
+        <div><div class="text-neutral-500">实际模型</div><div class="mono text-white mt-0.5">${esc(l.actual_model || '-')}</div></div>
+        <div><div class="text-neutral-500">出口 IP</div><div class="mono text-neutral-300 mt-0.5">${esc(l.egress_ip_snapshot || '-')}</div></div>
+        <div><div class="text-neutral-500">传输模式</div><div class="text-neutral-200 mt-0.5">${l.is_stream ? 'SSE 流式' : 'JSON'}</div></div>
+        <div><div class="text-neutral-500">TTFT / 总耗时</div><div class="mono text-neutral-200 mt-0.5">${l.ttft_ms || 0}ms / ${l.total_latency_ms || 0}ms</div></div>
+        <div><div class="text-neutral-500">用户 / Key</div><div class="mono text-neutral-200 mt-0.5">${esc(l.user_id || l.api_key_id || '-')}</div></div>
       </div>
-      <pre class="mono text-[11px] bg-[#05070d] border border-white/[0.08] text-cyan-200/90 p-3.5 rounded-xl overflow-x-auto">X-Gateway-Upstream-Request-Id: ${esc(l.upstream_request_id || '-')}\nX-Gateway-Egress-Proxy-Id: ${esc(l.proxy_id || '-')}\nX-Gateway-Passthrough-Verified: ${verified}</pre>
+      <pre class="mono text-xs bg-white/[0.04] border border-white/[0.08] text-neutral-300 p-3.5 rounded-lg overflow-x-auto">X-Gateway-Upstream-Request-Id: ${esc(l.upstream_request_id || '-')}\nX-Gateway-Egress-Proxy-Id: ${esc(l.proxy_id || '-')}\nX-Gateway-Passthrough-Verified: ${verified}</pre>
     </div>`,
-    footerHtml: `<button id="m-close-log" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white">关闭</button>`,
+    footerHtml: `<button id="m-close-log" class="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-500 text-white">关闭</button>`,
   });
   $('m-close-log').onclick = closeModal;
 }
@@ -797,102 +799,103 @@ function openLogDetailModal(id, source) {
 // Admin
 // ---------------------------------------------------------------------------
 function renderAdmin(container) {
-  if (!isAdmin()) { container.innerHTML = '<div class="spotlight-card p-10 text-center text-xs text-slate-500">仅管理员可见</div>'; return; }
+  if (!isAdmin()) { container.innerHTML = '<div class="spotlight-card p-10 text-center text-sm text-neutral-500">仅管理员可见</div>'; return; }
   const ov = state.admin.overview || {};
   const s = state.admin.poolStats || {};
   const emailOf = (uid) => state.admin.users.find((u) => u.id === uid)?.email || (uid ? uid.slice(0, 8) + '…' : '-');
   container.innerHTML = `
-    <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+    <section class="spotlight-card rounded-lg overflow-hidden">
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-px bg-white/[0.07]">
       ${kpiCard('注册用户', 'users', esc(ov.users ?? state.admin.users.length), '全平台', 'indigo', '租户总数')}
       ${kpiCard('已开通套餐', 'badge-check', esc(ov.active_plans ?? state.admin.users.filter((u) => u.plan_status === 'active').length), '付费用户', 'emerald', '每个账号各自分配独立出口')}
       ${kpiCard('已分配静态 IP', 'globe-lock', esc(ov.assigned_ips ?? state.admin.proxies.length), '一账号一 IP', 'cyan', 'Fail-Closed 强制')}
       ${kpiCard('请求 / 模型不一致', 'shield-alert', esc(ov.requests ?? state.stats.requests), String(ov.model_mismatch ?? state.stats.model_mismatch ?? 0), 'amber', '审计链 ' + (state.chain.ok === true ? '完整' : '待校验'))}
-    </section>
+    </div></section>
 
-    <section class="spotlight-card rounded-2xl overflow-hidden">
-      <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between"><div><h2 class="text-sm font-semibold text-white">用户与套餐</h2><p class="text-xs text-slate-400 mt-0.5">套餐状态参与出站鉴权；静态 IP 请在下方「账号与 IP」按账号管理（一账号一 IP）</p></div><button id="admin-refresh-btn" class="text-xs px-3 py-1.5 rounded-lg bg-white/[0.05] text-slate-200">刷新</button></div>
-      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-5 py-3">邮箱</th><th class="px-5 py-3">角色</th><th class="px-5 py-3">套餐</th><th class="px-5 py-3">静态 IP</th><th class="px-5 py-3">到期</th><th class="px-5 py-3">并发</th><th class="px-5 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
+    <section class="spotlight-card rounded-lg overflow-hidden">
+      <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between"><div><h2 class="text-base font-semibold text-white">用户与套餐</h2><p class="text-sm text-neutral-400 mt-0.5">套餐状态参与出站鉴权；静态 IP 请在下方「账号与 IP」按账号管理（一账号一 IP）</p></div><button id="admin-refresh-btn" class="text-sm px-3 py-1.5 rounded-md bg-white/[0.05] text-neutral-200">刷新</button></div>
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-sm"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-xs font-semibold text-neutral-400 uppercase"><th class="px-5 py-3">邮箱</th><th class="px-5 py-3">角色</th><th class="px-5 py-3">套餐</th><th class="px-5 py-3">静态 IP</th><th class="px-5 py-3">到期</th><th class="px-5 py-3">并发</th><th class="px-5 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
         ${state.admin.users.map((u) => `<tr>
-          <td class="px-5 py-3.5 font-medium text-slate-100">${esc(u.email)}</td>
-          <td class="px-5 py-3.5 mono text-slate-400">${esc(u.role)}</td>
-          <td class="px-5 py-3.5"><span class="px-2 py-0.5 rounded-full ${u.plan_status === 'active' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-slate-400'}">${esc(u.plan_status || 'unpaid')}</span></td>
-          <td class="px-5 py-3.5 mono text-cyan-300">${esc(u.assigned_ip || '-')}</td>
-          <td class="px-5 py-3.5 mono text-slate-400">${esc(fmtTime(u.plan_expires_at))}</td>
-          <td class="px-5 py-3.5 mono text-slate-400">${esc(u.max_concurrency || 5)}</td>
+          <td class="px-5 py-3.5 font-medium text-neutral-100">${esc(u.email)}</td>
+          <td class="px-5 py-3.5 mono text-neutral-400">${esc(u.role)}</td>
+          <td class="px-5 py-3.5"><span class="px-2 py-0.5 rounded ${u.plan_status === 'active' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-neutral-400'}">${esc(u.plan_status || 'unpaid')}</span></td>
+          <td class="px-5 py-3.5 mono text-neutral-300">${esc(u.assigned_ip || '-')}</td>
+          <td class="px-5 py-3.5 mono text-neutral-400">${esc(fmtTime(u.plan_expires_at))}</td>
+          <td class="px-5 py-3.5 mono text-neutral-400">${esc(u.max_concurrency || 5)}</td>
           <td class="px-5 py-3.5 text-right whitespace-nowrap">
-            <button data-plan="${esc(u.id)}" data-email="${esc(u.email)}" data-plan-status="${esc(u.plan_status || 'unpaid')}" data-plan-expires="${esc(u.plan_expires_at || '')}" data-max-concurrency="${esc(u.max_concurrency || 5)}" data-user-status="${esc(u.status || 'active')}" class="px-2.5 py-1 rounded-lg bg-white/[0.05] text-slate-200 hover:bg-white/[0.1] mr-1">套餐</button>
-            <button data-assign-pool="${esc(u.id)}" data-email="${esc(u.email)}" title="兼容入口：给用户分配一条占位 IP（新账号会自动从池取独立 IP）" class="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 mr-1">从池分配</button>
-            <button data-assign-ip="${esc(u.id)}" data-email="${esc(u.email)}" title="兼容入口：手动指定一个占位静态 IP" class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 mr-1">${u.assigned_ip ? '更换 IP' : '分配 IP'}</button>
-            <button data-revoke-ip="${esc(u.id)}" data-email="${esc(u.email)}" title="回收该用户全部静态 IP 并停用套餐" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20" ${u.assigned_ip ? '' : 'disabled'}>回收全部</button>
+            <button data-plan="${esc(u.id)}" data-email="${esc(u.email)}" data-plan-status="${esc(u.plan_status || 'unpaid')}" data-plan-expires="${esc(u.plan_expires_at || '')}" data-max-concurrency="${esc(u.max_concurrency || 5)}" data-user-status="${esc(u.status || 'active')}" class="px-2.5 py-1 rounded-md bg-white/[0.05] text-neutral-200 hover:bg-white/[0.1] mr-1">套餐</button>
+            <button data-assign-pool="${esc(u.id)}" data-email="${esc(u.email)}" title="兼容入口：给用户分配一条占位 IP（新账号会自动从池取独立 IP）" class="px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 mr-1">从池分配</button>
+            <button data-assign-ip="${esc(u.id)}" data-email="${esc(u.email)}" title="兼容入口：手动指定一个占位静态 IP" class="px-2.5 py-1 rounded-md bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 mr-1">${u.assigned_ip ? '更换 IP' : '分配 IP'}</button>
+            <button data-revoke-ip="${esc(u.id)}" data-email="${esc(u.email)}" title="回收该用户全部静态 IP 并停用套餐" class="px-2.5 py-1 rounded-md bg-rose-500/10 text-rose-300 hover:bg-rose-500/20" ${u.assigned_ip ? '' : 'disabled'}>回收全部</button>
           </td>
-        </tr>`).join('') || '<tr><td colspan="7" class="px-5 py-10 text-center text-slate-500">暂无用户</td></tr>'}
+        </tr>`).join('') || '<tr><td colspan="7" class="px-5 py-10 text-center text-neutral-500">暂无用户</td></tr>'}
       </tbody></table></div>
     </section>
 
-    <section class="spotlight-card rounded-2xl overflow-hidden">
+    <section class="spotlight-card rounded-lg overflow-hidden">
       <div class="px-5 py-4 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-3">
-        <div><h2 class="text-sm font-semibold text-white">账号与 IP（一账号一 IP）</h2><p class="text-xs text-slate-400 mt-0.5">每个上游账号独占一条静态出口；创建账号时自动从资源池分配，此处可单独更换或回收，不影响同用户其他账号</p></div>
-        <span class="text-[11px] text-slate-500">共 ${state.admin.accounts.length} 个账号</span>
+        <div><h2 class="text-base font-semibold text-white">账号与 IP（一账号一 IP）</h2><p class="text-sm text-neutral-400 mt-0.5">每个上游账号独占一条静态出口；创建账号时自动从资源池分配，此处可单独更换或回收，不影响同用户其他账号</p></div>
+        <span class="text-xs text-neutral-500">共 ${state.admin.accounts.length} 个账号</span>
       </div>
-      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-4 py-3">上游账号</th><th class="px-4 py-3">所属用户</th><th class="px-4 py-3">供应商</th><th class="px-4 py-3">专属出口 IP</th><th class="px-4 py-3">健康</th><th class="px-4 py-3">隔离</th><th class="px-4 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-sm"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-xs font-semibold text-neutral-400 uppercase"><th class="px-4 py-3">上游账号</th><th class="px-4 py-3">所属用户</th><th class="px-4 py-3">供应商</th><th class="px-4 py-3">专属出口 IP</th><th class="px-4 py-3">健康</th><th class="px-4 py-3">隔离</th><th class="px-4 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
         ${state.admin.accounts.map((a) => `<tr>
-          <td class="px-4 py-3.5"><div class="font-medium text-slate-100">${esc(a.name)}</div><div class="mono text-[10px] text-slate-500 mt-0.5">${esc(a.id.slice(0, 8))}…</div></td>
-          <td class="px-4 py-3.5 text-slate-300">${esc(emailOf(a.user_id))}</td>
-          <td class="px-4 py-3.5 mono text-slate-400">${esc(a.provider)}</td>
-          <td class="px-4 py-3.5 mono text-cyan-300">${esc(a.assigned_ip || '未分配')}</td>
-          <td class="px-4 py-3.5">${a.proxy_health ? healthBadge(a.proxy_health) : '<span class="text-slate-600">-</span>'}</td>
-          <td class="px-4 py-3.5">${a.exclusive === false ? '<span class="px-2 py-0.5 rounded-full text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/25">legacy 共用</span>' : '<span class="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">独占</span>'}</td>
+          <td class="px-4 py-3.5"><div class="font-medium text-neutral-100">${esc(a.name)}</div><div class="mono text-xs text-neutral-500 mt-0.5">${esc(a.id.slice(0, 8))}…</div></td>
+          <td class="px-4 py-3.5 text-neutral-300">${esc(emailOf(a.user_id))}</td>
+          <td class="px-4 py-3.5 mono text-neutral-400">${esc(a.provider)}</td>
+          <td class="px-4 py-3.5 mono text-neutral-300">${esc(a.assigned_ip || '未分配')}</td>
+          <td class="px-4 py-3.5">${a.proxy_health ? healthBadge(a.proxy_health) : '<span class="text-neutral-600">-</span>'}</td>
+          <td class="px-4 py-3.5">${a.exclusive === false ? '<span class="px-2 py-0.5 rounded text-xs bg-amber-500/10 text-amber-300 border border-amber-500/25">legacy 共用</span>' : '<span class="px-2 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-300 border border-emerald-500/25">独占</span>'}</td>
           <td class="px-4 py-3.5 text-right whitespace-nowrap">
-            <button data-acct-assign="${esc(a.id)}" class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 mr-1">${a.assigned_ip ? '更换 IP' : '分配 IP'}</button>
-            <button data-acct-revoke="${esc(a.id)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20" ${a.assigned_ip ? '' : 'disabled'}>回收</button>
+            <button data-acct-assign="${esc(a.id)}" class="px-2.5 py-1 rounded-md bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 mr-1">${a.assigned_ip ? '更换 IP' : '分配 IP'}</button>
+            <button data-acct-revoke="${esc(a.id)}" class="px-2.5 py-1 rounded-md bg-rose-500/10 text-rose-300 hover:bg-rose-500/20" ${a.assigned_ip ? '' : 'disabled'}>回收</button>
           </td>
-        </tr>`).join('') || '<tr><td colspan="7" class="px-5 py-10 text-center text-slate-500">暂无上游账号</td></tr>'}
+        </tr>`).join('') || '<tr><td colspan="7" class="px-5 py-10 text-center text-neutral-500">暂无上游账号</td></tr>'}
       </tbody></table></div>
-      <div class="px-5 py-3 border-t border-white/[0.06] text-[11px] text-slate-500">「分配/更换 IP」从资源池取一条 available+healthy 的条目；「回收」删除该账号出口并把池条目释放回 available，账号保留但立即 Fail-Closed。legacy 共用的出口建议逐个更换以完成拆分。</div>
+      <div class="px-5 py-3 border-t border-white/[0.06] text-xs text-neutral-500">「分配/更换 IP」从资源池取一条 available+healthy 的条目；「回收」删除该账号出口并把池条目释放回 available，账号保留但立即 Fail-Closed。legacy 共用的出口建议逐个更换以完成拆分。</div>
     </section>
 
-    <section class="spotlight-card rounded-2xl overflow-hidden">
+    <section class="spotlight-card rounded-lg overflow-hidden">
       <div class="px-5 py-4 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-3">
-        <div><h2 class="text-sm font-semibold text-white">静态 IP 资源池（库存）</h2><p class="text-xs text-slate-400 mt-0.5">批量录入 → 探测验健康 → 从池自动分配；仅 <span class="mono">available + healthy</span> 的条目可被分配</p></div>
-        <button id="pool-add-btn" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white hover:bg-indigo-400"><i data-lucide="plus" class="w-3.5 h-3.5"></i>批量添加 IP</button>
+        <div><h2 class="text-base font-semibold text-white">静态 IP 资源池（库存）</h2><p class="text-sm text-neutral-400 mt-0.5">批量录入 → 探测验健康 → 从池自动分配；仅 <span class="mono">available + healthy</span> 的条目可被分配</p></div>
+        <button id="pool-add-btn" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-indigo-500 text-white hover:bg-indigo-400"><i data-lucide="plus" class="w-3.5 h-3.5"></i>批量添加 IP</button>
       </div>
       <div class="px-5 py-3 flex flex-wrap gap-2 border-b border-white/[0.06]">
-        ${poolStatChip('库存总数', s.total ?? state.admin.ipPool.length, 'indigo')}
+        ${poolStatChip('库存总数', s.total ?? state.admin.ipPool.length, 'slate')}
         ${poolStatChip('可分配', s.allocatable ?? 0, 'emerald')}
-        ${poolStatChip('可用', s.available ?? 0, 'cyan')}
+        ${poolStatChip('可用', s.available ?? 0, 'slate')}
         ${poolStatChip('健康', s.healthy ?? 0, 'emerald')}
         ${poolStatChip('已分配', s.assigned ?? 0, 'amber')}
         ${poolStatChip('已停用', s.disabled ?? 0, 'slate')}
       </div>
-      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-4 py-3">端点</th><th class="px-4 py-3">状态</th><th class="px-4 py-3">出口 IP / 地区 / 延迟</th><th class="px-4 py-3">健康</th><th class="px-4 py-3">绑定账号 / 用户</th><th class="px-4 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-sm"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-xs font-semibold text-neutral-400 uppercase"><th class="px-4 py-3">端点</th><th class="px-4 py-3">状态</th><th class="px-4 py-3">出口 IP / 地区 / 延迟</th><th class="px-4 py-3">健康</th><th class="px-4 py-3">绑定账号 / 用户</th><th class="px-4 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
         ${state.admin.ipPool.map((p) => `<tr>
-          <td class="px-4 py-3.5"><div class="text-slate-100 font-medium">${esc(p.name || '未命名 IP')}</div><div class="mono text-[11px] text-cyan-300/80 mt-0.5">${esc(p.scheme)}://${esc(p.host)}:${esc(p.port)}</div></td>
+          <td class="px-4 py-3.5"><div class="text-neutral-100 font-medium">${esc(p.name || '未命名 IP')}</div><div class="mono text-xs text-neutral-400 mt-0.5">${esc(p.scheme)}://${esc(p.host)}:${esc(p.port)}</div></td>
           <td class="px-4 py-3.5">${poolStatusBadge(p.status)}</td>
-          <td class="px-4 py-3.5"><div class="mono text-cyan-300">${esc(p.last_egress_ip || '待探测')}</div><div class="text-[11px] text-slate-500 mt-0.5">${esc(p.last_egress_country || '-')}${p.last_latency_ms ? ' · ' + esc(p.last_latency_ms) + 'ms' : ''}</div></td>
+          <td class="px-4 py-3.5"><div class="mono text-neutral-300">${esc(p.last_egress_ip || '待探测')}</div><div class="text-xs text-neutral-500 mt-0.5">${esc(p.last_egress_country || '-')}${p.last_latency_ms ? ' · ' + esc(p.last_latency_ms) + 'ms' : ''}</div></td>
           <td class="px-4 py-3.5">${healthBadge(p.health_status)}</td>
-          <td class="px-4 py-3.5"><div class="mono text-[11px] ${p.assigned_account_id ? 'text-amber-300' : 'text-slate-500'}">${p.assigned_account_id ? '账号 ' + esc(p.assigned_account_id.slice(0, 8)) + '…' : (p.assigned_user_id ? '占位分配' : '-')}</div><div class="mono text-[10px] text-slate-500 mt-0.5">${p.assigned_user_id ? '用户 ' + esc(p.assigned_user_id.slice(0, 8)) + '…' : '-'}</div></td>
+          <td class="px-4 py-3.5"><div class="mono text-xs ${p.assigned_account_id ? 'text-amber-300' : 'text-neutral-500'}">${p.assigned_account_id ? '账号 ' + esc(p.assigned_account_id.slice(0, 8)) + '…' : (p.assigned_user_id ? '占位分配' : '-')}</div><div class="mono text-xs text-neutral-500 mt-0.5">${p.assigned_user_id ? '用户 ' + esc(p.assigned_user_id.slice(0, 8)) + '…' : '-'}</div></td>
           <td class="px-4 py-3.5 text-right whitespace-nowrap">
-            <button data-pool-probe="${esc(p.id)}" class="px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 mr-1">探测</button>
-            ${p.status === 'assigned' ? '<span class="text-[11px] text-slate-600">使用中 · 需先回收</span>' : `<button data-pool-toggle="${esc(p.id)}" data-pool-status="${esc(p.status)}" class="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 mr-1">${p.status === 'disabled' ? '启用' : '停用'}</button><button data-pool-delete="${esc(p.id)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20">删除</button>`}
+            <button data-pool-probe="${esc(p.id)}" class="px-2.5 py-1 rounded-md bg-white/[0.05] text-neutral-200 hover:bg-white/[0.1] mr-1">探测</button>
+            ${p.status === 'assigned' ? '<span class="text-xs text-neutral-600">使用中 · 需先回收</span>' : `<button data-pool-toggle="${esc(p.id)}" data-pool-status="${esc(p.status)}" class="px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 mr-1">${p.status === 'disabled' ? '启用' : '停用'}</button><button data-pool-delete="${esc(p.id)}" class="px-2.5 py-1 rounded-md bg-rose-500/10 text-rose-300 hover:bg-rose-500/20">删除</button>`}
           </td>
-        </tr>`).join('') || '<tr><td colspan="6" class="px-5 py-10 text-center text-slate-500">IP 池为空，点右上角「批量添加 IP」开始录入</td></tr>'}
+        </tr>`).join('') || '<tr><td colspan="6" class="px-5 py-10 text-center text-neutral-500">IP 池为空，点右上角「批量添加 IP」开始录入</td></tr>'}
       </tbody></table></div>
-      <div class="px-5 py-3 border-t border-white/[0.06] text-[11px] text-slate-500">录入后需逐条「探测」变为 <span class="mono text-emerald-400">healthy</span> 才会进入可分配队列；已分配条目需在「账号与 IP」表回收后释放回库存。</div>
+      <div class="px-5 py-3 border-t border-white/[0.06] text-xs text-neutral-500">录入后需逐条「探测」变为 <span class="mono text-emerald-400">healthy</span> 才会进入可分配队列；已分配条目需在「账号与 IP」表回收后释放回库存。</div>
     </section>
 
-    <section class="spotlight-card rounded-2xl overflow-hidden">
-      <div class="px-5 py-4 border-b border-white/[0.06]"><h2 class="text-sm font-semibold text-white">已分配出口（proxy_endpoints）</h2><p class="text-xs text-slate-400 mt-0.5">每条出口专属绑定一个上游账号；支持重新探测与回收</p></div>
-      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-xs"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-[10px] font-semibold text-slate-400 uppercase"><th class="px-5 py-3">用户</th><th class="px-5 py-3">名称</th><th class="px-5 py-3">绑定账号</th><th class="px-5 py-3">出口 IP</th><th class="px-5 py-3">地区</th><th class="px-5 py-3">延迟</th><th class="px-5 py-3">健康</th><th class="px-5 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
-        ${state.admin.proxies.map((p) => `<tr><td class="px-5 py-3.5 mono text-slate-400">${esc(p.user_id || '-')}</td><td class="px-5 py-3.5 text-slate-100">${esc(p.name || '-')}</td><td class="px-5 py-3.5 mono text-[11px] ${p.upstream_account_id ? 'text-amber-300' : 'text-slate-600'}">${p.upstream_account_id ? esc(p.upstream_account_id.slice(0, 8)) + '…' : 'legacy'}</td><td class="px-5 py-3.5 mono text-cyan-300">${esc(p.last_egress_ip || '-')}</td><td class="px-5 py-3.5 text-slate-300">${esc(p.last_egress_country || '-')}</td><td class="px-5 py-3.5 mono text-slate-300">${p.last_latency_ms ? esc(p.last_latency_ms) + 'ms' : '-'}</td><td class="px-5 py-3.5">${healthBadge(p.health_status)}</td><td class="px-5 py-3.5 text-right whitespace-nowrap"><button data-reprobe="${esc(p.id)}" class="px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 mr-1">重新探测</button><button data-revoke-proxy="${esc(p.id)}" data-uid="${esc(p.user_id)}" class="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-300 hover:bg-rose-500/20">回收</button></td></tr>`).join('') || '<tr><td colspan="8" class="px-5 py-10 text-center text-slate-500">暂无已分配 IP</td></tr>'}
+    <section class="spotlight-card rounded-lg overflow-hidden">
+      <div class="px-5 py-4 border-b border-white/[0.06]"><h2 class="text-base font-semibold text-white">已分配出口（proxy_endpoints）</h2><p class="text-sm text-neutral-400 mt-0.5">每条出口专属绑定一个上游账号；支持重新探测与回收</p></div>
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse text-sm"><thead><tr class="bg-white/[0.02] border-b border-white/[0.06] text-xs font-semibold text-neutral-400 uppercase"><th class="px-5 py-3">用户</th><th class="px-5 py-3">名称</th><th class="px-5 py-3">绑定账号</th><th class="px-5 py-3">出口 IP</th><th class="px-5 py-3">地区</th><th class="px-5 py-3">延迟</th><th class="px-5 py-3">健康</th><th class="px-5 py-3 text-right">操作</th></tr></thead><tbody class="divide-y divide-white/[0.05]">
+        ${state.admin.proxies.map((p) => `<tr><td class="px-5 py-3.5 mono text-neutral-400">${esc(p.user_id || '-')}</td><td class="px-5 py-3.5 text-neutral-100">${esc(p.name || '-')}</td><td class="px-5 py-3.5 mono text-xs ${p.upstream_account_id ? 'text-amber-300' : 'text-neutral-600'}">${p.upstream_account_id ? esc(p.upstream_account_id.slice(0, 8)) + '…' : 'legacy'}</td><td class="px-5 py-3.5 mono text-neutral-300">${esc(p.last_egress_ip || '-')}</td><td class="px-5 py-3.5 text-neutral-300">${esc(p.last_egress_country || '-')}</td><td class="px-5 py-3.5 mono text-neutral-300">${p.last_latency_ms ? esc(p.last_latency_ms) + 'ms' : '-'}</td><td class="px-5 py-3.5">${healthBadge(p.health_status)}</td><td class="px-5 py-3.5 text-right whitespace-nowrap"><button data-reprobe="${esc(p.id)}" class="px-2.5 py-1 rounded-md bg-white/[0.05] text-neutral-200 hover:bg-white/[0.1] mr-1">重新探测</button><button data-revoke-proxy="${esc(p.id)}" data-uid="${esc(p.user_id)}" class="px-2.5 py-1 rounded-md bg-rose-500/10 text-rose-300 hover:bg-rose-500/20">回收</button></td></tr>`).join('') || '<tr><td colspan="8" class="px-5 py-10 text-center text-neutral-500">暂无已分配 IP</td></tr>'}
       </tbody></table></div>
     </section>
 
-    <section class="spotlight-card rounded-2xl p-5">
-      <div class="flex items-center justify-between"><div><h2 class="text-sm font-semibold text-white">审计链完整性</h2><p class="text-xs text-slate-400 mt-0.5">公开可校验，任何历史记录被篡改都会断链</p></div><span class="px-3 py-1 rounded-full text-xs ${state.chain.ok === true ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}">${state.chain.ok === true ? '完整' : state.chain.ok === false ? '断链' : '未知'}</span></div>
-      <pre class="mono text-[11px] bg-[#05070d] border border-white/[0.08] text-cyan-200/90 p-3.5 rounded-xl mt-3 overflow-x-auto">${esc(JSON.stringify(state.chain, null, 2))}</pre>
+    <section class="spotlight-card rounded-lg p-5">
+      <div class="flex items-center justify-between"><div><h2 class="text-base font-semibold text-white">审计链完整性</h2><p class="text-sm text-neutral-400 mt-0.5">公开可校验，任何历史记录被篡改都会断链</p></div><span class="px-3 py-1 rounded text-sm ${state.chain.ok === true ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}">${state.chain.ok === true ? '完整' : state.chain.ok === false ? '断链' : '未知'}</span></div>
+      <pre class="mono text-xs bg-white/[0.04] border border-white/[0.08] text-neutral-300 p-3.5 rounded-lg mt-3 overflow-x-auto">${esc(JSON.stringify(state.chain, null, 2))}</pre>
     </section>
 
-    <section><h2 class="text-sm font-semibold text-white mb-3">全局审计日志</h2>${logTableHtml(filteredLogs(state.admin.logs), 'admin')}</section>
+    <section><h2 class="text-base font-semibold text-white mb-3">全局审计日志</h2>${logTableHtml(filteredLogs(state.admin.logs), 'admin')}</section>
   `;
   $('admin-refresh-btn').onclick = loadAndRender;
   $('pool-add-btn').onclick = openAddIPPoolModal;
@@ -985,13 +988,13 @@ function renderAdmin(container) {
 function openAssignIPModal(userId, email) {
   openModal({
     title: '为用户分配专属静态 IP',
-    bodyHtml: `<div class="space-y-3.5 text-xs">
-      <div class="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-200">用户：<span class="mono">${esc(email)}</span><br/>一个用户仅保留一条自动分配静态 IP；重复分配会替换旧配置。</div>
-      <div class="grid grid-cols-3 gap-3"><div><label class="block text-slate-300 mb-1.5">协议</label><select id="f-ip-scheme" class="w-full px-3 py-2.5 rounded-xl bg-[#121726] border border-white/[0.1] text-white"><option>http</option><option>socks5</option></select></div><div class="col-span-2"><label class="block text-slate-300 mb-1.5">静态 IP / 主机</label><input id="f-ip-host" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" placeholder="1.2.3.4" /></div></div>
-      <div class="grid grid-cols-3 gap-3"><div><label class="block text-slate-300 mb-1.5">端口</label><input id="f-ip-port" type="number" value="8080" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" /></div><div><label class="block text-slate-300 mb-1.5">用户名</label><input id="f-ip-user" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white" /></div><div><label class="block text-slate-300 mb-1.5">密码</label><input id="f-ip-pass" type="password" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white" /></div></div>
-      <p class="text-slate-500">当前为手动占位入口；接入你提供的静态 IP 获取接口后，此处将由付款回调自动完成。</p>
+    bodyHtml: `<div class="space-y-3.5 text-sm">
+      <div class="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/25 text-indigo-200">用户：<span class="mono">${esc(email)}</span><br/>一个用户仅保留一条自动分配静态 IP；重复分配会替换旧配置。</div>
+      <div class="grid grid-cols-3 gap-3"><div><label class="block text-neutral-300 mb-1.5">协议</label><select id="f-ip-scheme" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white"><option>http</option><option>socks5</option></select></div><div class="col-span-2"><label class="block text-neutral-300 mb-1.5">静态 IP / 主机</label><input id="f-ip-host" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono" placeholder="1.2.3.4" /></div></div>
+      <div class="grid grid-cols-3 gap-3"><div><label class="block text-neutral-300 mb-1.5">端口</label><input id="f-ip-port" type="number" value="8080" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono" /></div><div><label class="block text-neutral-300 mb-1.5">用户名</label><input id="f-ip-user" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white" /></div><div><label class="block text-neutral-300 mb-1.5">密码</label><input id="f-ip-pass" type="password" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white" /></div></div>
+      <p class="text-neutral-500">当前为手动占位入口；接入你提供的静态 IP 获取接口后，此处将由付款回调自动完成。</p>
     </div>`,
-    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400">取消</button><button id="m-assign" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white">分配并探测</button>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-lg text-sm text-neutral-400">取消</button><button id="m-assign" class="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-500 text-white">分配并探测</button>`,
   });
   $('m-cancel').onclick = closeModal;
   $('m-assign').onclick = async () => {
@@ -1012,19 +1015,19 @@ function openAssignIPModal(userId, email) {
 function openPlanModal(userId, email, u) {
   openModal({
     title: '管理用户套餐',
-    bodyHtml: `<div class="space-y-3.5 text-xs">
-      <div class="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-200">用户：<span class="mono">${esc(email)}</span><br/>套餐状态参与网关出站鉴权：非 <span class="mono">active</span> 会立即 Fail-Closed，已有请求不再放行。</div>
+    bodyHtml: `<div class="space-y-3.5 text-sm">
+      <div class="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/25 text-indigo-200">用户：<span class="mono">${esc(email)}</span><br/>套餐状态参与网关出站鉴权：非 <span class="mono">active</span> 会立即 Fail-Closed，已有请求不再放行。</div>
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="block text-slate-300 mb-1.5">套餐状态</label><select id="f-plan-status" class="w-full px-3 py-2.5 rounded-xl bg-[#121726] border border-white/[0.1] text-white"><option value="unpaid">unpaid · 未付款</option><option value="active">active · 开通</option><option value="expired">expired · 到期</option><option value="cancelled">cancelled · 取消</option></select></div>
-        <div><label class="block text-slate-300 mb-1.5">账号状态</label><select id="f-user-status" class="w-full px-3 py-2.5 rounded-xl bg-[#121726] border border-white/[0.1] text-white"><option value="active">active · 正常</option><option value="disabled">disabled · 停用</option></select></div>
+        <div><label class="block text-neutral-300 mb-1.5">套餐状态</label><select id="f-plan-status" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white"><option value="unpaid">unpaid · 未付款</option><option value="active">active · 开通</option><option value="expired">expired · 到期</option><option value="cancelled">cancelled · 取消</option></select></div>
+        <div><label class="block text-neutral-300 mb-1.5">账号状态</label><select id="f-user-status" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white"><option value="active">active · 正常</option><option value="disabled">disabled · 停用</option></select></div>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="block text-slate-300 mb-1.5">续期天数（留空不改）</label><input id="f-plan-days" type="number" min="1" placeholder="如 30 / 90" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
-        <div><label class="block text-slate-300 mb-1.5">并发上限</label><input id="f-plan-concurrency" type="number" min="1" value="${esc(u.max_concurrency || 5)}" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
+        <div><label class="block text-neutral-300 mb-1.5">续期天数（留空不改）</label><input id="f-plan-days" type="number" min="1" placeholder="如 30 / 90" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
+        <div><label class="block text-neutral-300 mb-1.5">并发上限</label><input id="f-plan-concurrency" type="number" min="1" value="${esc(u.max_concurrency || 5)}" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
       </div>
-      <p class="text-slate-500">当前到期：${esc(u.plan_expires_at || '未设置')}</p>
+      <p class="text-neutral-500">当前到期：${esc(u.plan_expires_at || '未设置')}</p>
     </div>`,
-    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400">取消</button><button id="m-save-plan" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white">保存套餐</button>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-lg text-sm text-neutral-400">取消</button><button id="m-save-plan" class="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-500 text-white">保存套餐</button>`,
   });
   $('f-plan-status').value = u.plan_status || 'unpaid';
   $('f-user-status').value = u.status || 'active';
@@ -1049,10 +1052,10 @@ function openPlanModal(userId, email, u) {
 function openRevokeIPModal(userId, email) {
   openModal({
     title: '回收专属静态 IP',
-    bodyHtml: `<div class="space-y-3.5 text-xs">
-      <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-200">用户：<span class="mono">${esc(email)}</span><br/>回收后该用户绑定的上游账号失去代理，套餐同步置为 <span class="mono">expired</span>，所有网关请求立即 Fail-Closed。此操作不可撤销，但可重新分配 IP 恢复。</div>
+    bodyHtml: `<div class="space-y-3.5 text-sm">
+      <div class="p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-200">用户：<span class="mono">${esc(email)}</span><br/>回收后该用户绑定的上游账号失去代理，套餐同步置为 <span class="mono">expired</span>，所有网关请求立即 Fail-Closed。此操作不可撤销，但可重新分配 IP 恢复。</div>
     </div>`,
-    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400">取消</button><button id="m-revoke-ip" class="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 text-white">确认回收</button>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-lg text-sm text-neutral-400">取消</button><button id="m-revoke-ip" class="px-4 py-2 rounded-lg text-sm font-semibold bg-rose-600 text-white">确认回收</button>`,
   });
   $('m-cancel').onclick = closeModal;
   $('m-revoke-ip').onclick = async () => {
@@ -1066,49 +1069,48 @@ function openRevokeIPModal(userId, email) {
 }
 
 function poolStatChip(label, value, color) {
+  // 中性项用 slate；只有带健康/分配状态语义的项才用状态色，避免"每个指标一种颜色"
   const map = {
-    indigo: 'bg-indigo-500/10 text-indigo-300 border-indigo-400/25',
     emerald: 'bg-emerald-500/10 text-emerald-300 border-emerald-400/25',
-    cyan: 'bg-cyan-500/10 text-cyan-300 border-cyan-400/25',
     amber: 'bg-amber-500/10 text-amber-300 border-amber-400/25',
-    slate: 'bg-white/[0.04] text-slate-400 border-white/[0.08]',
+    slate: 'bg-white/[0.04] text-neutral-400 border-white/[0.08]',
   };
-  return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] ${map[color] || map.slate}"><span class="text-slate-500">${esc(label)}</span><strong class="mono text-sm">${esc(value)}</strong></span>`;
+  return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs ${map[color] || map.slate}"><span class="text-neutral-500">${esc(label)}</span><strong class="mono text-base">${esc(value)}</strong></span>`;
 }
 
 function poolStatusBadge(status) {
   const map = {
     available: ['bg-emerald-500/12 text-emerald-300 border-emerald-500/30', '可用'],
     assigned: ['bg-amber-500/12 text-amber-300 border-amber-500/30', '已分配'],
-    disabled: ['bg-white/[0.05] text-slate-400 border-white/[0.1]', '已停用'],
+    disabled: ['bg-white/[0.05] text-neutral-400 border-white/[0.1]', '已停用'],
   };
   const [cls, label] = map[status] || map.disabled;
-  return `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${cls}">${label}</span>`;
+  return `<span class="px-2.5 py-0.5 rounded text-xs font-medium border ${cls}">${label}</span>`;
 }
 
 function openAddIPPoolModal() {
   openModal({
     title: '批量添加静态 IP 到资源池',
-    bodyHtml: `<div class="space-y-3.5 text-xs">
-      <div class="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-200 leading-relaxed">
+    bodyHtml: `<div class="space-y-3.5 text-sm">
+      <div class="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/25 text-indigo-200 leading-relaxed">
         每行一条，支持 <span class="mono">host:port</span>、<span class="mono">host:port:user:pass</span> 或 <span class="mono">scheme://user:pass@host:port</span>；<span class="mono">#</span> 开头为注释。端点重复自动跳过，凭证 <span class="mono">AES-256-GCM</span> 加密落库，私网地址直接拒绝。<br/>录入后须逐条「探测」变为 healthy 才可分配。
       </div>
-      <div><label class="block font-medium text-slate-300 mb-1.5">批量文本</label>
-        <textarea id="f-pool-lines" rows="6" spellcheck="false" class="w-full px-3 py-2.5 rounded-xl bg-[#05070d] border border-white/[0.1] text-cyan-100 mono text-[11px] leading-relaxed focus:outline-none focus:border-indigo-400" placeholder="# host:port:user:pass&#10;216.223.21.54:8022:qdqrxwzcez:iormiiumiomty&#10;# 或完整 URL&#10;http://user:pass@1.2.3.4:8080"></textarea>
+      <div><label class="block font-medium text-neutral-300 mb-1.5">批量文本</label>
+        <textarea id="f-pool-lines" rows="6" spellcheck="false" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-neutral-200 mono text-xs leading-relaxed focus:outline-none focus:border-indigo-400" placeholder="# host:port:user:pass&#10;216.223.21.54:8022:qdqrxwzcez:iormiiumiomty&#10;# 或完整 URL&#10;http://user:pass@1.2.3.4:8080"></textarea>
       </div>
       <div class="grid grid-cols-3 gap-3">
-        <div><label class="block text-slate-300 mb-1.5">默认协议（文本未写 scheme 时）</label><select id="f-pool-scheme" class="w-full px-3 py-2 rounded-xl bg-[#121726] border border-white/[0.1] text-white"><option value="http">http</option><option value="https">https</option><option value="socks5">socks5</option></select></div>
-        <div class="col-span-2"><label class="block text-slate-300 mb-1.5">备注（可选，统一写入本批）</label><input id="f-pool-note" class="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white" placeholder="例如：供应商 A · 美国住宅静态" /></div>
+        <div><label class="block text-neutral-300 mb-1.5">默认协议（文本未写 scheme 时）</label><select id="f-pool-scheme" class="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white"><option value="http">http</option><option value="https">https</option><option value="socks5">socks5</option></select></div>
+        <div class="col-span-2"><label class="block text-neutral-300 mb-1.5">备注（可选，统一写入本批）</label><input id="f-pool-note" class="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white" placeholder="例如：供应商 A · 美国住宅静态" /></div>
       </div>
-      <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300">也可在下方单条填写后「追加到文本」，一次提交多条。</div>
+      <div class="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300">也可在下方单条填写后「追加到文本」，一次提交多条。</div>
       <div class="grid grid-cols-4 gap-2 items-end">
-        <div class="col-span-2"><label class="block text-slate-400 mb-1.5">主机</label><input id="f-pool-one-host" class="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" placeholder="1.2.3.4" /></div>
-        <div><label class="block text-slate-400 mb-1.5">端口</label><input id="f-pool-one-port" type="number" value="8080" class="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
-        <div><label class="block text-slate-400 mb-1.5">账号:密码（可选）</label><input id="f-pool-one-auth" class="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" placeholder="u:p" /></div>
+        <div class="col-span-2"><label class="block text-neutral-400 mb-1.5">主机</label><input id="f-pool-one-host" class="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono" placeholder="1.2.3.4" /></div>
+        <div><label class="block text-neutral-400 mb-1.5">端口</label><input id="f-pool-one-port" type="number" value="8080" class="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
+        <div><label class="block text-neutral-400 mb-1.5">账号:密码（可选）</label><input id="f-pool-one-auth" class="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono" placeholder="u:p" /></div>
       </div>
-      <button id="f-pool-append" type="button" class="px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.1] text-slate-200 hover:bg-white/[0.1]">追加到文本</button>
+      <button id="f-pool-append" type="button" class="px-3 py-1.5 rounded-md bg-white/[0.06] border border-white/[0.1] text-neutral-200 hover:bg-white/[0.1]">追加到文本</button>
     </div>`,
-    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400 hover:bg-white/[0.06]">取消</button><button id="m-save-pool" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-500 text-white hover:bg-indigo-400">加入资源池</button>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-lg text-sm text-neutral-400 hover:bg-white/[0.06]">取消</button><button id="m-save-pool" class="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-500 text-white hover:bg-indigo-400">加入资源池</button>`,
   });
   $('m-cancel').onclick = closeModal;
   $('f-pool-append').onclick = () => {
@@ -1142,13 +1144,13 @@ function openAssignFromPoolModal(userId, email) {
   const s = state.admin.poolStats || {};
   openModal({
     title: '从 IP 池自动分配专属静态 IP',
-    bodyHtml: `<div class="space-y-3.5 text-xs">
-      <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-200 leading-relaxed">用户：<span class="mono">${esc(email)}</span><br/>系统按入库顺序取一条 <span class="mono">available + healthy</span> 的静态 IP，写入该用户专属出口，自动重绑其上游账号，并把套餐置为 <span class="mono">active</span>。</div>
-      <div class="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] text-slate-300">当前可分配：<strong class="mono text-emerald-300">${esc(s.allocatable ?? 0)}</strong> 条 / 库存 ${esc(s.total ?? state.admin.ipPool.length)} 条。若为 0，请先在池中「探测」出 healthy 条目。</div>
-      <div><label class="block text-slate-300 mb-1.5">套餐天数（留空默认 30 天）</label><input id="f-pool-days" type="number" min="1" placeholder="30" class="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
-      <p class="text-slate-500">重复分配会先释放该用户旧的池占用再取新的，不会造成库存泄漏。接入真实静态 IP 供应商接口后，此动作可由付款回调自动触发。</p>
+    bodyHtml: `<div class="space-y-3.5 text-sm">
+      <div class="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-200 leading-relaxed">用户：<span class="mono">${esc(email)}</span><br/>系统按入库顺序取一条 <span class="mono">available + healthy</span> 的静态 IP，写入该用户专属出口，自动重绑其上游账号，并把套餐置为 <span class="mono">active</span>。</div>
+      <div class="p-3 rounded-lg bg-white/[0.03] border border-white/[0.08] text-neutral-300">当前可分配：<strong class="mono text-emerald-300">${esc(s.allocatable ?? 0)}</strong> 条 / 库存 ${esc(s.total ?? state.admin.ipPool.length)} 条。若为 0，请先在池中「探测」出 healthy 条目。</div>
+      <div><label class="block text-neutral-300 mb-1.5">套餐天数（留空默认 30 天）</label><input id="f-pool-days" type="number" min="1" placeholder="30" class="w-full px-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1] text-white mono" /></div>
+      <p class="text-neutral-500">重复分配会先释放该用户旧的池占用再取新的，不会造成库存泄漏。接入真实静态 IP 供应商接口后，此动作可由付款回调自动触发。</p>
     </div>`,
-    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-xl text-xs text-slate-400 hover:bg-white/[0.06]">取消</button><button id="m-assign-pool" class="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500">从池分配</button>`,
+    footerHtml: `<button id="m-cancel" class="px-3.5 py-2 rounded-lg text-sm text-neutral-400 hover:bg-white/[0.06]">取消</button><button id="m-assign-pool" class="px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-500">从池分配</button>`,
   });
   $('m-cancel').onclick = closeModal;
   $('m-assign-pool').onclick = async () => {

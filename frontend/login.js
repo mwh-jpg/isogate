@@ -10,12 +10,10 @@ let mode = 'login';
 function setMode(next) {
   mode = next;
   const isLogin = mode === 'login';
-  $('tab-login').className = isLogin
-    ? 'px-4 py-1.5 rounded-lg font-medium bg-indigo-500/25 text-white border border-indigo-400/30'
-    : 'px-4 py-1.5 rounded-lg font-medium text-slate-400 border border-transparent hover:text-white';
-  $('tab-register').className = !isLogin
-    ? 'px-4 py-1.5 rounded-lg font-medium bg-indigo-500/25 text-white border border-indigo-400/30'
-    : 'px-4 py-1.5 rounded-lg font-medium text-slate-400 border border-transparent hover:text-white';
+  const activeTab = 'tab active';
+  const inactiveTab = 'tab';
+  $('tab-login').className = isLogin ? activeTab : inactiveTab;
+  $('tab-register').className = !isLogin ? activeTab : inactiveTab;
   $('submit-label').textContent = isLogin ? '登录控制台' : '注册并进入控制台';
   $('password').autocomplete = isLogin ? 'current-password' : 'new-password';
   hideError();

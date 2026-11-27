@@ -74,8 +74,20 @@ docker compose -f deploy/docker-compose.full.yml --env-file deploy/.env up -d
 
 - 控制台为免构建静态页面（`frontend/index.html` + `app.js`），登录后 JWT 存于 `localStorage.gw_token`。
 - 未登录访问 `/console/` 会自动跳转到 `/console/login.html?next=...`，登录/注册成功后跳回原页面；`next` 做了白名单校验，禁止 `//` 开头的外链跳转。
-- 独立登录页 `login.html`（暗色极光 + 玻璃拟态）支持登录/注册切换、已登录 token 自动校验、错误内联提示；管理员账号登录后自动显示「管理后台」入口。
+- 独立登录页 `login.html`（浅色双栏：左侧产品说明 + 右侧表单）支持登录/注册切换、已登录 token 自动校验、错误内联提示；管理员账号登录后自动显示「管理后台」入口。
 - 退出登录会清空本地 token 与内存状态并跳回登录页。
+
+### 前端视觉规范（B 端后台设计体系）
+
+前端已按统一的 B 端后台可视化规范重构，采用三层变量 + 受控兼容层的方案，**不重写业务逻辑**：
+
+- **三层设计变量**：`tokens.css` 为第一层视觉层（色阶/尺寸/字体/圆角/阴影）与第二层语义层（如 `--color-brand`、`--color-bg-page`、`--color-text-primary`）；`theme.css` 为第三层组件层，组件类只引用语义变量。品牌主色 Ant Design 蓝 `#1677ff`，正文 14px、圆角 6px、8pt 间距。
+- **主题切换只改第二层**：`[data-theme='dark']` 仅重指向语义层，组件与业务代码无需改动。
+- **受控兼容层**：保留 `spotlight-card`、`nav-item`、`moving-border-btn` 等旧 class 钩子并重定义为规范取值，避免改动 `app.js` 中 1100+ 行业务逻辑。
+- **公共框架**：208px 侧栏 + 56px 顶栏 + 24px 内容留白，最大内容宽度 1600px，移动端侧栏抽屉。
+- **图表规范**：Chart.js 无法解析 CSS `var()`，通过 `cssVar()` 读取变量值；系列色使用 `--chart-1`、`--chart-2` 等规范色板，不用语义色表达数据系列。
+- **零构建依赖**：移除 Tailwind CDN 与 Google Fonts，仅保留 Lucide（图标）与 Chart.js（图表）两个 CDN；favicon 为内联 SVG，无额外请求。
+- 覆盖文件：`frontend/tokens.css`、`frontend/theme.css`、`frontend/index.html`、`frontend/login.html`、`frontend/login.js`、`frontend/app.js`。
 
 ## 核心 API
 
